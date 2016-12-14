@@ -79,6 +79,7 @@ union bpf_attr;
 #include <linux/quota.h>
 #include <linux/key.h>
 #include <trace/syscall.h>
+#include <linux/abispec.h>
 
 /*
  * __MAP - apply a macro to syscall arguments
@@ -192,13 +193,17 @@ extern struct trace_event_functions exit_syscall_print_funcs;
 
 #define __PROTECT(...) asmlinkage_protect(__VA_ARGS__)
 #define __SYSCALL_DEFINEx(x, name, ...)					\
+	extern struct syscall_spec syscall_spec##name;		\
 	asmlinkage long sys##name(__MAP(x,__SC_DECL,__VA_ARGS__))	\
 		__attribute__((alias(__stringify(SyS##name))));		\
 	static inline long SYSC##name(__MAP(x,__SC_DECL,__VA_ARGS__));	\
 	asmlinkage long SyS##name(__MAP(x,__SC_LONG,__VA_ARGS__));	\
 	asmlinkage long SyS##name(__MAP(x,__SC_LONG,__VA_ARGS__))	\
 	{								\
-		long ret = SYSC##name(__MAP(x,__SC_CAST,__VA_ARGS__));	\
+		long ret;						\
+		abispec_check_pre(&syscall_spec##name, __MAP(x,__SC_ARGS,__VA_ARGS__)); \
+		ret = SYSC##name(__MAP(x,__SC_CAST,__VA_ARGS__));	\
+		abispec_check_post(&syscall_spec##name, ret, __MAP(x,__SC_ARGS,__VA_ARGS__)); \
 		__MAP(x,__SC_TEST,__VA_ARGS__);				\
 		__PROTECT(x, ret,__MAP(x,__SC_ARGS,__VA_ARGS__));	\
 		return ret;						\
