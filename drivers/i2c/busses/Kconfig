@@ -1359,3 +1359,9 @@ config I2C_FSI
 	  called as i2c-fsi.
 
 endmenu
+
+config I2C_MOCK
+	bool "I2C mock"
+	depends on TEST
+	default y
+
