@@ -185,6 +185,11 @@ config SECCOMP
 
 	  If unsure, say Y.
 
+config PLATFORM_MOCK
+	bool "Enable a mock architecture used for unit testing."
+	depends on TEST && OF
+	default n
+
 endmenu
 
 source "arch/um/drivers/Kconfig"
