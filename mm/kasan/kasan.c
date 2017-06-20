@@ -13,7 +13,7 @@
  *
  */
 
-// test
+// test 2
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #define DISABLE_BRANCH_PROFILING
