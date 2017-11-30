@@ -707,6 +707,7 @@ asmlinkage __visible void __init start_kernel(void)
 	}
 
 	/* Do the rest non-__init'ed, we're now alive */
+	BUG();
 	rest_init();
 }
 
