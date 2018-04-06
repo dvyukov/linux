@@ -5,6 +5,7 @@
 #include <linux/gfp.h>
 #include <linux/export.h>
 #include <linux/of_address.h>
+#include <test/mock.h>
 
 enum devm_ioremap_type {
 	DEVM_IOREMAP = 0,
@@ -131,7 +132,7 @@ EXPORT_SYMBOL(devm_iounmap);
  *	if (IS_ERR(base))
  *		return PTR_ERR(base);
  */
-void __iomem *devm_ioremap_resource(struct device *dev, struct resource *res)
+void __iomem * __mockable devm_ioremap_resource(struct device *dev, struct resource *res)
 {
 	resource_size_t size;
 	const char *name;

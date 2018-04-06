@@ -19,6 +19,7 @@
 #include <linux/reset.h>
 #include <linux/reset-controller.h>
 #include <linux/slab.h>
+#include <test/mock.h>
 
 static DEFINE_MUTEX(reset_list_mutex);
 static LIST_HEAD(reset_controller_list);
@@ -352,7 +353,7 @@ EXPORT_SYMBOL_GPL(reset_control_assert);
  * If rstc is NULL it is an optional reset and the function will just
  * return 0.
  */
-int reset_control_deassert(struct reset_control *rstc)
+int __mockable reset_control_deassert(struct reset_control *rstc)
 {
 	if (!rstc)
 		return 0;
@@ -633,7 +634,7 @@ static void devm_reset_control_release(struct device *dev, void *res)
 	reset_control_put(*(struct reset_control **)res);
 }
 
-struct reset_control *__devm_reset_control_get(struct device *dev,
+struct reset_control * __mockable __devm_reset_control_get(struct device *dev,
 				     const char *id, int index, bool shared,
 				     bool optional)
 {

@@ -8,13 +8,14 @@
 #include <linux/device.h>
 #include <linux/export.h>
 #include <linux/gfp.h>
+#include <linux/mock.h>
 
 static void devm_clk_release(struct device *dev, void *res)
 {
 	clk_put(*(struct clk **)res);
 }
 
-struct clk *devm_clk_get(struct device *dev, const char *id)
+struct clk * __mockable devm_clk_get(struct device *dev, const char *id)
 {
 	struct clk **ptr, *clk;
 

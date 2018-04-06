@@ -46,6 +46,7 @@
 #include <linux/property.h>
 #include <linux/rwsem.h>
 #include <linux/slab.h>
+#include <test/mock.h>
 
 #include "i2c-core.h"
 
@@ -1339,7 +1340,8 @@ static int __i2c_add_numbered_adapter(struct i2c_adapter *adap)
  * in adap->nr, and the specified adapter became available for clients.
  * Otherwise, a negative errno value is returned.
  */
-int i2c_add_adapter(struct i2c_adapter *adapter)
+DEFINE_REDIRECT_MOCKABLE(i2c_add_adapter, RETURNS(int), PARAMS(struct i2c_adapter *));
+int REAL_ID(i2c_add_adapter)(struct i2c_adapter *adapter)
 {
 	struct device *dev = &adapter->dev;
 	int id;

@@ -4,6 +4,7 @@
 #include <linux/device.h>
 #include <linux/gfp.h>
 #include <linux/irq.h>
+#include <test/mock.h>
 
 #include "internals.h"
 
@@ -48,7 +49,7 @@ static int devm_irq_match(struct device *dev, void *res, void *data)
  *	If an IRQ allocated with this function needs to be freed
  *	separately, devm_free_irq() must be used.
  */
-int devm_request_threaded_irq(struct device *dev, unsigned int irq,
+int __mockable devm_request_threaded_irq(struct device *dev, unsigned int irq,
 			      irq_handler_t handler, irq_handler_t thread_fn,
 			      unsigned long irqflags, const char *devname,
 			      void *dev_id)
