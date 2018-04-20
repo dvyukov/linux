@@ -29,6 +29,7 @@
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
+#include <test/mock.h>
 #include "i2c-aspeed.h"
 
 enum aspeed_i2c_master_state {
@@ -665,7 +666,7 @@ static u32 aspeed_i2c_get_clk_reg_val(u32 clk_high_low_mask, u32 divisor)
 			| (base_clk & ASPEED_I2CD_TIME_BASE_DIVISOR_MASK);
 }
 
-static u32 aspeed_i2c_24xx_get_clk_reg_val(u32 divisor)
+__visible_for_testing u32 aspeed_i2c_24xx_get_clk_reg_val(u32 divisor)
 {
 	/*
 	 * clk_high and clk_low are each 3 bits wide, so each can hold a max
@@ -674,7 +675,7 @@ static u32 aspeed_i2c_24xx_get_clk_reg_val(u32 divisor)
 	return aspeed_i2c_get_clk_reg_val(GENMASK(2, 0), divisor);
 }
 
-static u32 aspeed_i2c_25xx_get_clk_reg_val(u32 divisor)
+__visible_for_testing u32 aspeed_i2c_25xx_get_clk_reg_val(u32 divisor)
 {
 	/*
 	 * clk_high and clk_low are each 4 bits wide, so each can hold a max

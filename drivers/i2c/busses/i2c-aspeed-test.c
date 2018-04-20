@@ -7,6 +7,14 @@
 #include <asm/io-mock.h>
 #include "i2c-aspeed.h"
 
+#define ASPEED_I2C_MAX_BASE_DIVISOR		(1 << ASPEED_I2CD_TIME_BASE_DIVISOR_MASK)
+#define ASPEED_I2C_24XX_CLK_HIGH_LOW_MASK	GENMASK(2, 0)
+#define ASPEED_I2C_24XX_CLK_HIGH_LOW_MAX	((ASPEED_I2C_24XX_CLK_HIGH_LOW_MASK + 1) * 2)
+#define ASPEED_I2C_24XX_MAX_DIVISOR		(ASPEED_I2C_MAX_BASE_DIVISOR * ASPEED_I2C_24XX_CLK_HIGH_LOW_MAX)
+#define ASPEED_I2C_25XX_CLK_HIGH_LOW_MASK	GENMASK(3, 0)
+#define ASPEED_I2C_25XX_CLK_HIGH_LOW_MAX	((ASPEED_I2C_25XX_CLK_HIGH_LOW_MASK + 1) * 2)
+#define ASPEED_I2C_25XX_MAX_DIVISOR		(ASPEED_I2C_MAX_BASE_DIVISOR * ASPEED_I2C_25XX_CLK_HIGH_LOW_MAX)
+
 struct aspeed_i2c_test {
 	struct test *test;
 	struct platform_device *pdev;
@@ -151,6 +159,196 @@ static void aspeed_i2c_master_xfer_test_basic(struct test *test)
 		  i2c_master_send(client, msg, ARRAY_SIZE(msg)));
 }
 
+static u32 aspeed_i2c_get_base_clk(u32 reg_val)
+{
+	return reg_val & ASPEED_I2CD_TIME_BASE_DIVISOR_MASK;
+}
+
+static u32 aspeed_i2c_get_clk_high(u32 reg_val)
+{
+	return (reg_val & ASPEED_I2CD_TIME_SCL_HIGH_MASK) >>
+			ASPEED_I2CD_TIME_SCL_HIGH_SHIFT;
+}
+
+static u32 aspeed_i2c_get_clk_low(u32 reg_val)
+{
+	return (reg_val & ASPEED_I2CD_TIME_SCL_LOW_MASK) >>
+			ASPEED_I2CD_TIME_SCL_LOW_SHIFT;
+}
+
+static void aspeed_i2c_get_clk_reg_val_params_test(struct test *test,
+						   u32 (*get_clk_reg_val)(u32),
+						   u32 divisor,
+						   u32 base_clk,
+						   u32 clk_high,
+						   u32 clk_low)
+{
+	u32 reg_val;
+
+	reg_val = get_clk_reg_val(divisor);
+
+	ASSERT_EQ(test,
+		  reg_val & ~(ASPEED_I2CD_TIME_SCL_HIGH_MASK |
+			      ASPEED_I2CD_TIME_SCL_LOW_MASK |
+			      ASPEED_I2CD_TIME_BASE_DIVISOR_MASK),
+		  0);
+
+	EXPECT_EQ(test, aspeed_i2c_get_base_clk(reg_val), base_clk);
+	EXPECT_EQ(test, aspeed_i2c_get_clk_high(reg_val), clk_high);
+	EXPECT_EQ(test, aspeed_i2c_get_clk_low(reg_val), clk_low);
+}
+
+__visible_for_testing u32 aspeed_i2c_24xx_get_clk_reg_val(u32 divisor);
+
+static void aspeed_i2c_24xx_get_clk_reg_val_params_test(struct test *test,
+							u32 divisor,
+							u32 base_clk,
+							u32 clk_high,
+							u32 clk_low)
+{
+	aspeed_i2c_get_clk_reg_val_params_test(test,
+					       aspeed_i2c_24xx_get_clk_reg_val,
+					       divisor,
+					       base_clk,
+					       clk_high,
+					       clk_low);
+
+}
+
+/*
+ * Verify that smallest possible divisors are handled correctly.
+ */
+static void aspeed_i2c_24xx_get_clk_reg_val_test_min(struct test *test)
+{
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 0, 0, 0, 0);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 1, 0, 0, 0);
+}
+
+/*
+ * Verify that largest possible divisors are handled correctly.
+ */
+static void aspeed_i2c_24xx_get_clk_reg_val_test_max(struct test *test)
+{
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test,
+						    ASPEED_I2C_24XX_MAX_DIVISOR,
+						    ASPEED_I2CD_TIME_BASE_DIVISOR_MASK,
+						    ASPEED_I2C_24XX_CLK_HIGH_LOW_MASK,
+						    ASPEED_I2C_24XX_CLK_HIGH_LOW_MASK);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test,
+						    ASPEED_I2C_24XX_MAX_DIVISOR + 1,
+						    ASPEED_I2CD_TIME_BASE_DIVISOR_MASK,
+						    ASPEED_I2C_24XX_CLK_HIGH_LOW_MASK,
+						    ASPEED_I2C_24XX_CLK_HIGH_LOW_MASK);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test,
+						    U32_MAX,
+						    ASPEED_I2CD_TIME_BASE_DIVISOR_MASK,
+						    ASPEED_I2C_24XX_CLK_HIGH_LOW_MASK,
+						    ASPEED_I2C_24XX_CLK_HIGH_LOW_MASK);
+}
+
+/*
+ * Spot check values from the datasheet table.
+ */
+static void aspeed_i2c_24xx_get_clk_reg_val_test_datasheet(struct test *test)
+{
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 6, 0, 2, 2);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 7, 0, 3, 2);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 16, 0, 7, 7);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 18, 1, 4, 3);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 491520, 15, 7, 6);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 524288, 15, 7, 7);
+}
+
+/*
+ * Check that divisor that cannot be represented exactly is up down to the next
+ * divisor that can be represented.
+ */
+static void aspeed_i2c_24xx_get_clk_reg_val_test_round_up(struct test *test)
+{
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 16, 0, 7, 7);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 17, 1, 4, 3);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 18, 1, 4, 3);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 19, 1, 4, 4);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 491519, 15, 7, 6);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 491520, 15, 7, 6);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 524287, 15, 7, 7);
+	aspeed_i2c_24xx_get_clk_reg_val_params_test(test, 524288, 15, 7, 7);
+}
+
+__visible_for_testing u32 aspeed_i2c_25xx_get_clk_reg_val(u32 divisor);
+
+static void aspeed_i2c_25xx_get_clk_reg_val_params_test(struct test *test,
+							u32 divisor,
+							u32 base_clk,
+							u32 clk_high,
+							u32 clk_low)
+{
+	aspeed_i2c_get_clk_reg_val_params_test(test,
+					       aspeed_i2c_25xx_get_clk_reg_val,
+					       divisor,
+					       base_clk,
+					       clk_high,
+					       clk_low);
+
+}
+
+/*
+ * Verify that smallest possible divisors are handled correctly.
+ */
+static void aspeed_i2c_25xx_get_clk_reg_val_test_min(struct test *test)
+{
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 0, 0, 0, 0);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 1, 0, 0, 0);
+}
+
+/*
+ * Verify that largest possible divisors are handled correctly.
+ */
+static void aspeed_i2c_25xx_get_clk_reg_val_test_max(struct test *test)
+{
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test,
+						    ASPEED_I2C_25XX_MAX_DIVISOR,
+						    ASPEED_I2CD_TIME_BASE_DIVISOR_MASK,
+						    ASPEED_I2C_25XX_CLK_HIGH_LOW_MASK,
+						    ASPEED_I2C_25XX_CLK_HIGH_LOW_MASK);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test,
+						    ASPEED_I2C_25XX_MAX_DIVISOR + 1,
+						    ASPEED_I2CD_TIME_BASE_DIVISOR_MASK,
+						    ASPEED_I2C_25XX_CLK_HIGH_LOW_MASK,
+						    ASPEED_I2C_25XX_CLK_HIGH_LOW_MASK);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test,
+						    U32_MAX,
+						    ASPEED_I2CD_TIME_BASE_DIVISOR_MASK,
+						    ASPEED_I2C_25XX_CLK_HIGH_LOW_MASK,
+						    ASPEED_I2C_25XX_CLK_HIGH_LOW_MASK);
+}
+
+/*
+ * Spot check values from the datasheet table.
+ */
+static void aspeed_i2c_25xx_get_clk_reg_val_test_datasheet(struct test *test)
+{
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 6, 0, 2, 2);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 7, 0, 3, 2);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 32, 0, 15, 15);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 34, 1, 8, 7);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 2048, 6, 15, 15);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 2176, 7, 8, 7);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 3072, 7, 11, 11);
+}
+
+/*
+ * Check that divisor that cannot be represented exactly is up down to the next
+ * divisor that can be represented.
+ */
+static void aspeed_i2c_25xx_get_clk_reg_val_test_round_up(struct test *test)
+{
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 2047, 6, 15, 15);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 2048, 6, 15, 15);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 2175, 7, 8, 7);
+	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 2176, 7, 8, 7);
+}
+
 static int aspeed_i2c_test_init(struct test *test)
 {
 	struct mock_param_capturer *adap_capturer,
@@ -260,6 +458,14 @@ static void aspeed_i2c_test_exit(struct test *test)
 
 static struct test_case aspeed_i2c_test_cases[] = {
 	TEST_CASE(aspeed_i2c_master_xfer_test_basic),
+	TEST_CASE(aspeed_i2c_24xx_get_clk_reg_val_test_min),
+	TEST_CASE(aspeed_i2c_24xx_get_clk_reg_val_test_max),
+	TEST_CASE(aspeed_i2c_24xx_get_clk_reg_val_test_datasheet),
+	TEST_CASE(aspeed_i2c_24xx_get_clk_reg_val_test_round_up),
+	TEST_CASE(aspeed_i2c_25xx_get_clk_reg_val_test_min),
+	TEST_CASE(aspeed_i2c_25xx_get_clk_reg_val_test_max),
+	TEST_CASE(aspeed_i2c_25xx_get_clk_reg_val_test_datasheet),
+	TEST_CASE(aspeed_i2c_25xx_get_clk_reg_val_test_round_up),
 	{},
 };
 
