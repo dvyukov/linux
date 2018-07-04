@@ -22,7 +22,7 @@
  *          obtain the ipc object (kern_ipc_perm) by looking up the id in an idr
  *	    tree.
  *	    - perform initial checks (capabilities, auditing and permission,
- *	      etc).
+ *	      check the sequence counter, etc).
  *	    - perform read-only operations, such as INFO command, that
  *	      do not demand atomicity
  *	      acquire the ipc lock (kern_ipc_perm.lock) through
@@ -269,6 +269,12 @@ int ipc_addid(struct ipc_ids *ids, struct kern_ipc_perm *new, int limit)
 	current_euid_egid(&euid, &egid);
 	new->cuid = new->uid = euid;
 	new->gid = new->cgid = egid;
+
+	/*
+	 * Initialize ->seq to ULONG_MAX, so that any early ipc_checkid()
+	 * calls are guarenteed to fail.
+	 */
+	new->seq = ULONG_MAX;
 
 	id = ipc_idr_alloc(ids, new);
 	idr_preload_end();
