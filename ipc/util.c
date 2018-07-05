@@ -604,15 +604,17 @@ struct kern_ipc_perm *ipc_obtain_object_idr(struct ipc_ids *ids, int id)
 }
 
 /**
- * ipc_lock - lock an ipc structure without rwsem held
+ * ipc_lock_idr - lock an ipc structure without rwsem held
  * @ids: ipc identifier set
  * @id: ipc id to look for
  *
  * Look for an id in the ipc ids idr and lock the associated ipc object.
+ * The function does not check if the sequence counter matches the
+ * found ipc object.
  *
  * The ipc object is locked on successful exit.
  */
-struct kern_ipc_perm *ipc_lock(struct ipc_ids *ids, int id)
+struct kern_ipc_perm *ipc_lock_idr(struct ipc_ids *ids, int id)
 {
 	struct kern_ipc_perm *out;
 
@@ -624,8 +626,8 @@ struct kern_ipc_perm *ipc_lock(struct ipc_ids *ids, int id)
 	spin_lock(&out->lock);
 
 	/*
-	 * ipc_rmid() may have already freed the ID while ipc_lock()
-	 * was spinning: here verify that the structure is still valid.
+	 * ipc_rmid() may have already freed the ID while waiting for
+	 * the lock. Here verify that the structure is still valid.
 	 * Upon races with RMID, return -EIDRM, thus indicating that
 	 * the ID points to a removed identifier.
 	 */

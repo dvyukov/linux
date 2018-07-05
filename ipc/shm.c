@@ -179,11 +179,11 @@ static inline struct shmid_kernel *shm_obtain_object_check(struct ipc_namespace 
  */
 static inline struct shmid_kernel *shm_lock(struct ipc_namespace *ns, int id)
 {
-	struct kern_ipc_perm *ipcp = ipc_lock(&shm_ids(ns), id);
+	struct kern_ipc_perm *ipcp = ipc_lock_idr(&shm_ids(ns), id);
 
 	/*
 	 * Callers of shm_lock() must validate the status of the returned ipc
-	 * object pointer (as returned by ipc_lock()), and error out as
+	 * object pointer (as returned by ipc_lock_idr()), and error out as
 	 * appropriate.
 	 */
 	if (IS_ERR(ipcp))
