@@ -193,51 +193,31 @@ static struct kern_ipc_perm *ipc_findkey(struct ipc_ids *ids, key_t key)
 	return NULL;
 }
 
-#ifdef CONFIG_CHECKPOINT_RESTORE
 /*
  * Specify desired id for next allocated IPC object.
  */
-static inline int ipc_idr_alloc(struct ipc_ids *ids,
-				struct kern_ipc_perm *new)
+static inline int ipc_idr_alloc(struct ipc_ids *ids, struct kern_ipc_perm *new)
 {
-	int key;
+	int key, next_id = -1;
 
-	if (ids->next_id < 0) {
-		key = idr_alloc(&ids->ipcs_idr, new, 0, 0, GFP_NOWAIT);
-	} else {
-		key = idr_alloc(&ids->ipcs_idr, new,
-				ipcid_to_idx(ids->next_id),
-				0, GFP_NOWAIT);
-		ids->next_id = -1;
-	}
-	return key;
-}
+#ifdef CONFIG_CHECKPOINT_RESTORE
+	next_id = ids->next_id;
+	ids->next_id = -1;
+#endif
 
-static inline void ipc_set_seq(struct ipc_ids *ids,
-				struct kern_ipc_perm *new)
-{
-	if (ids->next_id < 0) { /* default, behave as !CHECKPOINT_RESTORE */
+	if (next_id < 0) { /* !CHECKPOINT_RESTORE or next_id is unset */
 		new->seq = ids->seq++;
 		if (ids->seq > IPCID_SEQ_MAX)
 			ids->seq = 0;
+		key = idr_alloc(&ids->ipcs_idr, new, 0, 0, GFP_NOWAIT);
 	} else {
-		new->seq = ipcid_to_seqx(ids->next_id);
+		new->seq = ipcid_to_seqx(next_id);
+		key = idr_alloc(&ids->ipcs_idr, new, ipcid_to_idx(next_id),
+				0, GFP_NOWAIT);
 	}
+	new->id = SEQ_MULTIPLIER * new->seq + key;
+	return key;
 }
-
-#else
-#define ipc_idr_alloc(ids, new)					\
-	idr_alloc(&(ids)->ipcs_idr, (new), 0, 0, GFP_NOWAIT)
-
-static inline void ipc_set_seq(struct ipc_ids *ids,
-			      struct kern_ipc_perm *new)
-{
-	new->seq = ids->seq++;
-	if (ids->seq > IPCID_SEQ_MAX)
-		ids->seq = 0;
-}
-
-#endif /* CONFIG_CHECKPOINT_RESTORE */
 
 /**
  * ipc_addid - add an ipc identifier
@@ -278,8 +258,6 @@ int ipc_addid(struct ipc_ids *ids, struct kern_ipc_perm *new, int limit)
 	current_euid_egid(&euid, &egid);
 	new->cuid = new->uid = euid;
 	new->gid = new->cgid = egid;
-
-	ipc_set_seq(ids, new);
 	new->deleted = false;
 
 	/*
@@ -317,9 +295,6 @@ int ipc_addid(struct ipc_ids *ids, struct kern_ipc_perm *new, int limit)
 	ids->in_use++;
 	if (id > ids->max_id)
 		ids->max_id = id;
-
-	new->id = SEQ_MULTIPLIER * new->seq + id;
-
 	return id;
 }
 
