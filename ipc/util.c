@@ -197,13 +197,24 @@ static struct kern_ipc_perm *ipc_findkey(struct ipc_ids *ids, key_t key)
 /*
  * Specify desired id for next allocated IPC object.
  */
-#define ipc_idr_alloc(ids, new)						\
-	idr_alloc(&(ids)->ipcs_idr, (new),				\
-		  (ids)->next_id < 0 ? 0 : ipcid_to_idx((ids)->next_id),\
-		  0, GFP_NOWAIT)
+static inline int ipc_idr_alloc(struct ipc_ids *ids,
+				struct kern_ipc_perm *new)
+{
+	int key;
 
-static inline int ipc_buildid(int id, struct ipc_ids *ids,
-			      struct kern_ipc_perm *new)
+	if (ids->next_id < 0) {
+		key = idr_alloc(&ids->ipcs_idr, new, 0, 0, GFP_NOWAIT);
+	} else {
+		key = idr_alloc(&ids->ipcs_idr, new,
+				ipcid_to_idx(ids->next_id),
+				0, GFP_NOWAIT);
+		ids->next_id = -1;
+	}
+	return key;
+}
+
+static inline void ipc_set_seq(struct ipc_ids *ids,
+				struct kern_ipc_perm *new)
 {
 	if (ids->next_id < 0) { /* default, behave as !CHECKPOINT_RESTORE */
 		new->seq = ids->seq++;
@@ -211,24 +222,19 @@ static inline int ipc_buildid(int id, struct ipc_ids *ids,
 			ids->seq = 0;
 	} else {
 		new->seq = ipcid_to_seqx(ids->next_id);
-		ids->next_id = -1;
 	}
-
-	return SEQ_MULTIPLIER * new->seq + id;
 }
 
 #else
 #define ipc_idr_alloc(ids, new)					\
 	idr_alloc(&(ids)->ipcs_idr, (new), 0, 0, GFP_NOWAIT)
 
-static inline int ipc_buildid(int id, struct ipc_ids *ids,
+static inline void ipc_set_seq(struct ipc_ids *ids,
 			      struct kern_ipc_perm *new)
 {
 	new->seq = ids->seq++;
 	if (ids->seq > IPCID_SEQ_MAX)
 		ids->seq = 0;
-
-	return SEQ_MULTIPLIER * new->seq + id;
 }
 
 #endif /* CONFIG_CHECKPOINT_RESTORE */
@@ -270,6 +276,19 @@ int ipc_addid(struct ipc_ids *ids, struct kern_ipc_perm *new, int limit)
 	new->cuid = new->uid = euid;
 	new->gid = new->cgid = egid;
 
+	ipc_set_seq(ids, new);
+
+	/*
+	 * As soon as a new object is inserted into the idr,
+	 * ipc_obtain_object_idr() or ipc_obtain_object_check() can find it,
+	 * and the lockless preparations for ipc operations can start.
+	 * This means especially: permission checks, audit calls, allocation
+	 * of undo structures, ...
+	 *
+	 * Thus the object must be fully initialized, and if something fails,
+	 * then the full tear-down sequence must be followed.
+	 * (i.e.: set new->deleted, reduce refcount, call_rcu())
+	 */
 	id = ipc_idr_alloc(ids, new);
 	idr_preload_end();
 
@@ -291,7 +310,7 @@ int ipc_addid(struct ipc_ids *ids, struct kern_ipc_perm *new, int limit)
 	if (id > ids->max_id)
 		ids->max_id = id;
 
-	new->id = ipc_buildid(id, ids, new);
+	new->id = SEQ_MULTIPLIER * new->seq + id;
 
 	return id;
 }
