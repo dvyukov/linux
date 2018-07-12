@@ -68,6 +68,7 @@ merged much easier.
    kernel-hacking/index
    trace/index
    maintainer/index
+   test/index
 
 Kernel API documentation
 ------------------------
