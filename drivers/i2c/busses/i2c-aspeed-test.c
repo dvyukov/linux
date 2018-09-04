@@ -66,97 +66,118 @@ static void *schedule_irq_handler_call(struct test *test,
 
 static void aspeed_i2c_master_xfer_test_basic(struct test *test)
 {
-	struct aspeed_i2c_test *ctx = test->priv;
-	struct i2c_client *client = ctx->client;
-	struct mock_expectation *handle;
-	u8 msg[] = {0xae, 0x00};
+        struct aspeed_i2c_test *ctx = test->priv;
+        struct i2c_client *client = ctx->client;
+        struct mock_expectation *read_cmd_reg, *write_client_addr,
+            *write_start_cmd, *slave_response, *ack_slave_response,
+            *write_first_byte, *first_byte_tx_cmd, *first_byte_sent,
+            *ack_first_byte_tx, *write_second_byte, *second_byte_tx_cmd,
+            *second_byte_sent, *ack_second_byte_tx, *stop_tx, *bus_stopped,
+            *write_bus_stopped;
+        u8 msg[] = {0xae, 0x00};
 
-	handle = EXPECT_CALL(readl(u32_eq(test, ASPEED_I2C_CMD_REG)));
-	handle->action = u32_return(test, !ASPEED_I2CD_BUS_BUSY_STS);
+        read_cmd_reg = Returns(EXPECT_CALL(readl(u32_eq(test,
+                                                        ASPEED_I2C_CMD_REG))),
+                               u32_return(test, !ASPEED_I2CD_BUS_BUSY_STS));
 
-	/* Start transaction. */
-	EXPECT_CALL(writel(u32_eq(test, client->addr << 1),
-			   u32_eq(test, ASPEED_I2C_BYTE_BUF_REG)));
-	handle = EXPECT_CALL(writel(u32_eq(test,
-					   ASPEED_I2CD_M_START_CMD |
-					   ASPEED_I2CD_M_TX_CMD),
-				    u32_eq(test, ASPEED_I2C_CMD_REG)));
-	/*
-	 * After the above expectation is hit the thread on which
-	 * i2c_master_send is called will be put to sleep. However, we scheduled
-	 * a worker to call the IRQ handler which should execute next.
-	 */
-	handle->action = invoke(test, schedule_irq_handler_call);
+        /* Start transaction. */
+        write_client_addr = EXPECT_CALL(writel(
+            u32_eq(test, client->addr << 1),
+            u32_eq(test, ASPEED_I2C_BYTE_BUF_REG)));
+        /*
+         * After the above expectation is hit the thread on which
+         * i2c_master_send is called will be put to sleep. However, we scheduled
+         * a worker to call the IRQ handler which should execute next.
+         */
+        write_start_cmd = ActionOnMatch(
+            EXPECT_CALL(writel(u32_eq(test,
+                                      ASPEED_I2CD_M_START_CMD |
+                                      ASPEED_I2CD_M_TX_CMD),
+                               u32_eq(test, ASPEED_I2C_CMD_REG))),
+            invoke(test, schedule_irq_handler_call));
 
-	/* Tell the handler a slave responded. */
-	handle = EXPECT_CALL(readl(u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-	/* TODO(brendanhiggins): This is a pretty brittle way to make sure the
-	 * other actions on this expectation are respected. A better way would
-	 * be to use a sequence as described here:
-	 * https://github.com/google/googletest/blob/master/googlemock/docs/CookBook.md#expecting-partially-ordered-calls
-	 * However, this has not been implemented yet.
-	 */
-	handle->retire_on_saturation = true;
-	handle->action = u32_return(test, ASPEED_I2CD_INTR_TX_ACK);
-	handle = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_INTR_TX_ACK),
-				    u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-	handle->retire_on_saturation = true;
-	/* Expect the first byte. */
-	EXPECT_CALL(writel(u32_eq(test, msg[0]),
-			   u32_eq(test, ASPEED_I2C_BYTE_BUF_REG)));
-	handle = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_M_TX_CMD),
-				    u32_eq(test, ASPEED_I2C_CMD_REG)));
-	/* TODO(brendanhiggins): Brittle, should assert partial ordering. */
-	handle->retire_on_saturation = true;
-	/* Master should continue to wait to send another byte. */
-	handle->action = invoke(test, schedule_irq_handler_call);
+        /* Tell the handler a slave responded. */
+        slave_response = EXPECT_CALL(readl(u32_eq(test,
+                                                  ASPEED_I2C_INTR_STS_REG)));
+        RetireOnSaturation(Returns(slave_response,
+                                   u32_return(test, ASPEED_I2CD_INTR_TX_ACK)));
 
-	/* Tell the handler the first byte was received. */
-	handle = EXPECT_CALL(readl(u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-	/* TODO(brendanhiggins): Brittle, should assert partial ordering. */
-	handle->retire_on_saturation = true;
-	handle->action = u32_return(test, ASPEED_I2CD_INTR_TX_ACK);
-	handle = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_INTR_TX_ACK),
-				    u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-	handle->retire_on_saturation = true;
-	/* Expect the second byte. */
-	EXPECT_CALL(writel(u32_eq(test, msg[1]),
-			   u32_eq(test, ASPEED_I2C_BYTE_BUF_REG)));
-	handle = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_M_TX_CMD),
-				    u32_eq(test, ASPEED_I2C_CMD_REG)));
-	/* TODO(brendanhiggins): Brittle, should assert partial ordering. */
-	handle->retire_on_saturation = true;
-	/* Master should continue to wait to receive ACK and STOP bus. */
-	handle->action = invoke(test, schedule_irq_handler_call);
+        ack_slave_response = EXPECT_CALL(writel(
+            u32_eq(test, ASPEED_I2CD_INTR_TX_ACK),
+            u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
+        RetireOnSaturation(ack_slave_response);
+        /* Expect the first byte. */
+        write_first_byte = EXPECT_CALL(writel(
+            u32_eq(test, msg[0]), u32_eq(test, ASPEED_I2C_BYTE_BUF_REG)));
+        /* Master should continue to wait to send another byte. */
+        first_byte_tx_cmd = ActionOnMatch(
+            EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_M_TX_CMD),
+                               u32_eq(test, ASPEED_I2C_CMD_REG))),
+            invoke(test, schedule_irq_handler_call));
+        RetireOnSaturation(first_byte_tx_cmd);
 
-	/* Tell the handler the second byte was received. */
-	handle = EXPECT_CALL(readl(u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-	/* TODO(brendanhiggins): Brittle, should assert partial ordering. */
-	handle->retire_on_saturation = true;
-	handle->action = u32_return(test, ASPEED_I2CD_INTR_TX_ACK);
-	handle = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_INTR_TX_ACK),
-				    u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-	handle->retire_on_saturation = true;
-	/* Expect a request to STOP the bus. */
-	handle = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_M_STOP_CMD),
-				    u32_eq(test, ASPEED_I2C_CMD_REG)));
-	/* TODO(brendanhiggins): Brittle, should assert partial ordering. */
-	handle->retire_on_saturation = true;
-	/* Master should continue to wait to receive ACK and STOP bus. */
-	handle->action = invoke(test, schedule_irq_handler_call);
+        /* Tell the handler the first byte was received. */
+        first_byte_sent = EXPECT_CALL(readl(u32_eq(test,
+                                                   ASPEED_I2C_INTR_STS_REG)));
+        Returns(first_byte_sent,
+                u32_return(test, ASPEED_I2CD_INTR_TX_ACK));
+        RetireOnSaturation(first_byte_sent);
 
-	/* Tell the handler the bus has been stopped. */
-	handle = EXPECT_CALL(readl(u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-	/* TODO(brendanhiggins): Brittle, should assert partial ordering. */
-	handle->retire_on_saturation = true;
-	handle->action = u32_return(test, ASPEED_I2CD_INTR_NORMAL_STOP);
-	handle = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_INTR_NORMAL_STOP),
-				    u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-	handle->retire_on_saturation = true;
+        ack_first_byte_tx = EXPECT_CALL(writel(
+            u32_eq(test, ASPEED_I2CD_INTR_TX_ACK),
+            u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
+        RetireOnSaturation(ack_first_byte_tx);
 
-	EXPECT_EQ(test,
-		  ARRAY_SIZE(msg),
-		  i2c_master_send(client, msg, ARRAY_SIZE(msg)));
+        /* Expect the second byte. */
+        write_second_byte = EXPECT_CALL(writel(
+            u32_eq(test, msg[1]),
+            u32_eq(test, ASPEED_I2C_BYTE_BUF_REG)));
+
+        /* Master should continue to wait to receive ACK and STOP bus. */
+        second_byte_tx_cmd = ActionOnMatch(
+            EXPECT_CALL(writel(
+                u32_eq(test, ASPEED_I2CD_M_TX_CMD),
+                u32_eq(test, ASPEED_I2C_CMD_REG))),
+            invoke(test, schedule_irq_handler_call));
+        RetireOnSaturation(second_byte_tx_cmd);
+
+        /* Tell the handler the second byte was received. */
+        second_byte_sent = EXPECT_CALL(readl(u32_eq(test,
+                                                    ASPEED_I2C_INTR_STS_REG)));
+        RetireOnSaturation(Returns(second_byte_sent,
+                                   u32_return(test, ASPEED_I2CD_INTR_TX_ACK)));
+
+        ack_second_byte_tx = EXPECT_CALL(
+            writel(u32_eq(test, ASPEED_I2CD_INTR_TX_ACK),
+                   u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
+
+        /* Expect a request to STOP the bus. */
+        /* Master should continue to wait to receive ACK and STOP bus. */
+        stop_tx = ActionOnMatch(
+            EXPECT_CALL(
+                writel(u32_eq(test, ASPEED_I2CD_M_STOP_CMD),
+                       u32_eq(test, ASPEED_I2C_CMD_REG))),
+            invoke(test, schedule_irq_handler_call));
+
+        /* Tell the handler the bus has been stopped. */
+        bus_stopped = EXPECT_CALL(readl(
+            u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
+        Returns(bus_stopped,
+                u32_return(test, ASPEED_I2CD_INTR_NORMAL_STOP));
+
+        write_bus_stopped = EXPECT_CALL(
+            writel(u32_eq(test, ASPEED_I2CD_INTR_NORMAL_STOP),
+                   u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
+
+        InSequence(test, read_cmd_reg, write_client_addr, write_start_cmd,
+                   slave_response, ack_slave_response, write_first_byte,
+                   first_byte_tx_cmd, first_byte_sent, ack_first_byte_tx,
+                   write_second_byte, second_byte_tx_cmd, second_byte_sent,
+                   ack_second_byte_tx, stop_tx, bus_stopped, write_bus_stopped);
+
+        EXPECT_EQ(test,
+                  ARRAY_SIZE(msg),
+                  i2c_master_send(client, msg, ARRAY_SIZE(msg)));
 }
 
 static u32 aspeed_i2c_get_base_clk(u32 reg_val)
