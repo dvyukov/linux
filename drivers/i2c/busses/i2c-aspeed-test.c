@@ -99,13 +99,13 @@ static void aspeed_i2c_master_xfer_test_basic(struct test *test)
         /* Tell the handler a slave responded. */
         slave_response = EXPECT_CALL(readl(u32_eq(test,
                                                   ASPEED_I2C_INTR_STS_REG)));
-        RetireOnSaturation(Returns(slave_response,
-                                   u32_return(test, ASPEED_I2CD_INTR_TX_ACK)));
+        Returns(slave_response,
+                u32_return(test, ASPEED_I2CD_INTR_TX_ACK));
 
         ack_slave_response = EXPECT_CALL(writel(
             u32_eq(test, ASPEED_I2CD_INTR_TX_ACK),
             u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-        RetireOnSaturation(ack_slave_response);
+
         /* Expect the first byte. */
         write_first_byte = EXPECT_CALL(writel(
             u32_eq(test, msg[0]), u32_eq(test, ASPEED_I2C_BYTE_BUF_REG)));
@@ -114,19 +114,16 @@ static void aspeed_i2c_master_xfer_test_basic(struct test *test)
             EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_M_TX_CMD),
                                u32_eq(test, ASPEED_I2C_CMD_REG))),
             invoke(test, schedule_irq_handler_call));
-        RetireOnSaturation(first_byte_tx_cmd);
 
         /* Tell the handler the first byte was received. */
         first_byte_sent = EXPECT_CALL(readl(u32_eq(test,
                                                    ASPEED_I2C_INTR_STS_REG)));
         Returns(first_byte_sent,
                 u32_return(test, ASPEED_I2CD_INTR_TX_ACK));
-        RetireOnSaturation(first_byte_sent);
 
         ack_first_byte_tx = EXPECT_CALL(writel(
             u32_eq(test, ASPEED_I2CD_INTR_TX_ACK),
             u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-        RetireOnSaturation(ack_first_byte_tx);
 
         /* Expect the second byte. */
         write_second_byte = EXPECT_CALL(writel(
@@ -139,13 +136,12 @@ static void aspeed_i2c_master_xfer_test_basic(struct test *test)
                 u32_eq(test, ASPEED_I2CD_M_TX_CMD),
                 u32_eq(test, ASPEED_I2C_CMD_REG))),
             invoke(test, schedule_irq_handler_call));
-        RetireOnSaturation(second_byte_tx_cmd);
 
         /* Tell the handler the second byte was received. */
         second_byte_sent = EXPECT_CALL(readl(u32_eq(test,
                                                     ASPEED_I2C_INTR_STS_REG)));
-        RetireOnSaturation(Returns(second_byte_sent,
-                                   u32_return(test, ASPEED_I2CD_INTR_TX_ACK)));
+        Returns(second_byte_sent,
+                u32_return(test, ASPEED_I2CD_INTR_TX_ACK));
 
         ack_second_byte_tx = EXPECT_CALL(
             writel(u32_eq(test, ASPEED_I2CD_INTR_TX_ACK),
