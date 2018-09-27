@@ -384,64 +384,64 @@ static int aspeed_i2c_test_init(struct test *test)
 				int_return(test, 0));
 
 	/* TODO(brendanhiggins@google.com): Fix this so mock_validate works. */
-	handle = EXPECT_CALL(readl(any(test)));
-	handle->action = u32_return(test, 0);
-	handle->retire_on_saturation = true;
+	handle = RetireOnSaturation(Returns(EXPECT_CALL(readl(any(test))),
+                                            u32_return(test, 0)));
 	handle->max_calls_expected = 2;
-	handle = EXPECT_CALL(writel(u32_eq(test, 0),
-				    u32_eq(test, ASPEED_I2C_INTR_CTRL_REG)));
-	handle->retire_on_saturation = true;
-	handle = EXPECT_CALL(writel(any(test),
-				    u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
-	handle->retire_on_saturation = true;
-	handle = EXPECT_CALL(writel(u32_eq(test, 0),
-				    u32_eq(test, ASPEED_I2C_FUN_CTRL_REG)));
-	handle->retire_on_saturation = true;
-	handle = EXPECT_CALL(writel(u32_ne(test, 0),
-				    u32_eq(test, ASPEED_I2C_FUN_CTRL_REG)));
-	handle->retire_on_saturation = true;
-	handle = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_INTR_ALL),
-				    u32_eq(test, ASPEED_I2C_INTR_CTRL_REG)));
-	handle->retire_on_saturation = true;
-	handle = EXPECT_CALL(writel(any(test),
-				    u32_eq(test, ASPEED_I2C_AC_TIMING_REG1)));
-	handle->retire_on_saturation = true;
-	handle = EXPECT_CALL(writel(u32_eq(test, ASPEED_NO_TIMEOUT_CTRL),
-				    u32_eq(test, ASPEED_I2C_AC_TIMING_REG2)));
-	handle->retire_on_saturation = true;
+        RetireOnSaturation(EXPECT_CALL(
+            writel(u32_eq(test, 0),
+                   u32_eq(test, ASPEED_I2C_INTR_CTRL_REG))));
+        RetireOnSaturation(EXPECT_CALL(
+            writel(any(test),
+                   u32_eq(test, ASPEED_I2C_INTR_STS_REG))));
+	RetireOnSaturation(EXPECT_CALL(
+            writel(u32_eq(test, 0),
+                   u32_eq(test, ASPEED_I2C_FUN_CTRL_REG))));
+	RetireOnSaturation(EXPECT_CALL(
+            writel(u32_ne(test, 0),
+                   u32_eq(test, ASPEED_I2C_FUN_CTRL_REG))));
+	RetireOnSaturation(EXPECT_CALL(
+            writel(u32_eq(test, ASPEED_I2CD_INTR_ALL),
+                   u32_eq(test, ASPEED_I2C_INTR_CTRL_REG))));
+	RetireOnSaturation(EXPECT_CALL(
+            writel(any(test),
+                   u32_eq(test, ASPEED_I2C_AC_TIMING_REG1))));
+	RetireOnSaturation(EXPECT_CALL(
+            writel(u32_eq(test, ASPEED_NO_TIMEOUT_CTRL),
+                   u32_eq(test, ASPEED_I2C_AC_TIMING_REG2))));
 
 	ctx = test_kzalloc(test, sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
 		return -ENOMEM;
 	test->priv = ctx;
 
-	handle = EXPECT_CALL(devm_ioremap_resource(any(test), any(test)));
-	handle->action = int_return(test, 0);
+	Returns(EXPECT_CALL(devm_ioremap_resource(any(test), any(test))),
+                int_return(test, 0));
 
-	handle = EXPECT_CALL(__devm_reset_control_get(any(test),
-						      any(test),
-						      any(test),
-						      any(test),
-						      any(test)));
-	handle->action = int_return(test, 0);
-	handle = EXPECT_CALL(reset_control_deassert(any(test)));
-	handle->action = int_return(test, 0);
+	Returns(EXPECT_CALL(__devm_reset_control_get(any(test),
+						     any(test),
+						     any(test),
+						     any(test),
+                                                     any(test))),
+                int_return(test, 0));
+
+	Returns(EXPECT_CALL(reset_control_deassert(any(test))),
+                int_return(test, 0));
 
 	irq_capturer = mock_ptr_capturer_create(test, any(test));
 	irq_ctx_capturer = mock_ptr_capturer_create(test, any(test));
-	handle = EXPECT_CALL(devm_request_threaded_irq(any(test),
-						       any(test),
-						       capturer_to_matcher(irq_capturer),
-						       any(test),
-						       any(test),
-						       any(test),
-						       capturer_to_matcher(irq_ctx_capturer)));
-	handle->action = int_return(test, 0);
+	Returns(EXPECT_CALL(devm_request_threaded_irq(any(test),
+						      any(test),
+						      capturer_to_matcher(irq_capturer),
+						      any(test),
+						      any(test),
+						      any(test),
+                                                      capturer_to_matcher(irq_ctx_capturer))),
+                int_return(test, 0));
 
 	adap_capturer = mock_ptr_capturer_create(test, any(test));
-	handle = EXPECT_CALL(
-			i2c_add_adapter(capturer_to_matcher(adap_capturer)));
-	handle->action = INVOKE_REAL(test, i2c_add_adapter);
+	ActionOnMatch(EXPECT_CALL(
+            i2c_add_adapter(capturer_to_matcher(adap_capturer))),
+                      INVOKE_REAL(test, i2c_add_adapter));
 
 	ctx->pdev = of_fake_probe_platform_by_name(test,
 						   "aspeed-i2c-bus",
