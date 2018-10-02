@@ -11,7 +11,7 @@ struct netns_frags {
 	int			timeout;
 	int			max_dist;
 	struct inet_frags	*f;
-
+	bool			dead;
 	struct rhashtable       rhashtable ____cacheline_aligned_in_smp;
 
 	/* Keep atomic mem on separate cachelines in structs that include it */
@@ -24,11 +24,13 @@ struct netns_frags {
  * @INET_FRAG_FIRST_IN: first fragment has arrived
  * @INET_FRAG_LAST_IN: final fragment has arrived
  * @INET_FRAG_COMPLETE: frag queue has been processed and is due for destruction
+ * @INET_FRAG_HASH_DEAD: inet_frag_kill() has not removed fq from rhashtable
  */
 enum {
 	INET_FRAG_FIRST_IN	= BIT(0),
 	INET_FRAG_LAST_IN	= BIT(1),
 	INET_FRAG_COMPLETE	= BIT(2),
+	INET_FRAG_HASH_DEAD	= BIT(3),
 };
 
 struct frag_v4_compare_key {

@@ -71,27 +71,30 @@ EXPORT_SYMBOL(inet_frags_fini);
 static void inet_frags_free_cb(void *ptr, void *arg)
 {
 	struct inet_frag_queue *fq = ptr;
+	int count = 0;
 
-	/* If we can not cancel the timer, it means this frag_queue
-	 * is already disappearing, we have nothing to do.
-	 * Otherwise, we own a refcount until the end of this function.
-	 */
-	if (!del_timer(&fq->timer))
-		return;
+	if (del_timer_sync(&fq->timer))
+		count++;
 
 	spin_lock_bh(&fq->lock);
 	if (!(fq->flags & INET_FRAG_COMPLETE)) {
 		fq->flags |= INET_FRAG_COMPLETE;
-		refcount_dec(&fq->refcnt);
+		count++;
+	} else if (fq->flags & INET_FRAG_HASH_DEAD) {
+		count++;
 	}
 	spin_unlock_bh(&fq->lock);
 
-	inet_frag_put(fq);
+	if (refcount_sub_and_test(count, &fq->refcnt))
+		inet_frag_destroy(fq);
 }
 
 void inet_frags_exit_net(struct netns_frags *nf)
 {
 	nf->high_thresh = 0; /* prevent creation of new frags */
+
+	/* paired with READ_ONCE() in inet_frag_kill() */
+	smp_store_release(&nf->dead, true);
 
 	rhashtable_free_and_destroy(&nf->rhashtable, inet_frags_free_cb, NULL);
 }
@@ -106,8 +109,16 @@ void inet_frag_kill(struct inet_frag_queue *fq)
 		struct netns_frags *nf = fq->net;
 
 		fq->flags |= INET_FRAG_COMPLETE;
-		rhashtable_remove_fast(&nf->rhashtable, &fq->node, nf->f->rhash_params);
-		refcount_dec(&fq->refcnt);
+		/* This READ_ONCE() is paired with smp_store_release()
+		 * in inet_frags_exit_net().
+		 */
+		if (!READ_ONCE(nf->dead)) {
+			rhashtable_remove_fast(&nf->rhashtable, &fq->node,
+					       nf->f->rhash_params);
+			refcount_dec(&fq->refcnt);
+		} else {
+			fq->flags |= INET_FRAG_HASH_DEAD;
+		}
 	}
 }
 EXPORT_SYMBOL(inet_frag_kill);
