@@ -1145,9 +1145,7 @@ static noinline void __init kernel_init_freeable(void)
 
 	do_basic_setup();
 
-#if IS_ENABLED(CONFIG_TEST)
 	test_executor_init();
-#endif
 
 	/* Open the /dev/console on the rootfs, this should never fail */
 	if (ksys_open((const char __user *) "/dev/console", O_RDWR, 0) < 0)
