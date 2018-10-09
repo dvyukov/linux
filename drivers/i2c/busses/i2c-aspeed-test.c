@@ -64,21 +64,22 @@ static void *schedule_irq_handler_call(struct test *test,
 	return ctx;
 }
 
-static void aspeed_i2c_master_xfer_test_basic(struct test *test)
+/* Adds expectations which are common to many test cases which test conditions
+ * that eventually lead to a transfer (e.g after performing some recovery steps etc).
+ */
+static void aspeed_i2c_master_xfer_start_transaction(struct test *test,
+                                                     struct mock_expectation *precondition)
 {
         struct aspeed_i2c_test *ctx = test->priv;
         struct i2c_client *client = ctx->client;
-        struct mock_expectation *read_cmd_reg, *write_client_addr,
+        struct mock_expectation *write_client_addr,
             *write_start_cmd, *slave_response, *ack_slave_response,
             *write_first_byte, *first_byte_tx_cmd, *first_byte_sent,
             *ack_first_byte_tx, *write_second_byte, *second_byte_tx_cmd,
             *second_byte_sent, *ack_second_byte_tx, *stop_tx, *bus_stopped,
             *write_bus_stopped;
-        u8 msg[] = {0xae, 0x00};
 
-        read_cmd_reg = Returns(EXPECT_CALL(readl(u32_eq(test,
-                                                        ASPEED_I2C_CMD_REG))),
-                               u32_return(test, !ASPEED_I2CD_BUS_BUSY_STS));
+        u8 msg[] = {0xae, 0x00};
 
         /* Start transaction. */
         write_client_addr = EXPECT_CALL(writel(
@@ -165,7 +166,7 @@ static void aspeed_i2c_master_xfer_test_basic(struct test *test)
             writel(u32_eq(test, ASPEED_I2CD_INTR_NORMAL_STOP),
                    u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
 
-        InSequence(test, read_cmd_reg, write_client_addr, write_start_cmd,
+        InSequence(test, precondition, write_client_addr, write_start_cmd,
                    slave_response, ack_slave_response, write_first_byte,
                    first_byte_tx_cmd, first_byte_sent, ack_first_byte_tx,
                    write_second_byte, second_byte_tx_cmd, second_byte_sent,
@@ -174,6 +175,163 @@ static void aspeed_i2c_master_xfer_test_basic(struct test *test)
         EXPECT_EQ(test,
                   ARRAY_SIZE(msg),
                   i2c_master_send(client, msg, ARRAY_SIZE(msg)));
+}
+
+static void aspeed_i2c_master_xfer_test_basic(struct test *test)
+{
+        struct mock_expectation *read_cmd_reg;
+
+        /* Set expectation to return a value indicating the bus is not busy */
+        read_cmd_reg = Returns(EXPECT_CALL(readl(u32_eq(test,
+                                                        ASPEED_I2C_CMD_REG))),
+                               u32_return(test, !ASPEED_I2CD_BUS_BUSY_STS));
+
+        aspeed_i2c_master_xfer_start_transaction(test, /*precondition=*/read_cmd_reg);
+}
+
+static void aspeed_i2c_master_xfer_test_idle_bus(struct test *test)
+{
+        struct mock_expectation *read_cmd_reg_bus_busy, *read_cmd_reg_bus_recovery;
+
+        read_cmd_reg_bus_busy = Returns(EXPECT_CALL(readl(u32_eq(test,
+                                                                 ASPEED_I2C_CMD_REG))),
+                                        u32_return(test, ASPEED_I2CD_BUS_BUSY_STS));
+        /* Read command registers which has both the SDA_LINE_STS and
+         * SCL_LINE_STS bits set, meaning the bus is idle and no recovery
+         * is not necessary */
+        read_cmd_reg_bus_recovery = Returns(EXPECT_CALL(readl(u32_eq(test,
+                                                                     ASPEED_I2C_CMD_REG))),
+                                            u32_return(test, ASPEED_I2CD_SDA_LINE_STS | ASPEED_I2CD_SCL_LINE_STS));
+
+        InSequence(test, read_cmd_reg_bus_busy, read_cmd_reg_bus_recovery);
+
+        aspeed_i2c_master_xfer_start_transaction(test, /*precondition=*/read_cmd_reg_bus_busy);
+}
+
+static void aspeed_i2c_master_xfer_test_recover_bus_reset(struct test *test)
+{
+        /* Expectation set during the recovery phase. */
+        struct mock_expectation *read_cmd_reg_bus_busy, *read_cmd_reg_sda_line_set,
+            *write_stop_cmd, *disable_intr, *ack_all_intr, *disable_aspeed,
+            *read_clk_reg_value, *write_clk_reg_value, *write_no_timeout_ctrl,
+            *read_func_ctrl_reg, *enable_master_mode, *enable_interrupts;
+
+        /* Read command register and return state that indicates the bus to be busy */
+        read_cmd_reg_bus_busy = Returns(EXPECT_CALL(readl(u32_eq(test,
+                                                                 ASPEED_I2C_CMD_REG))),
+                                        u32_return(test, ASPEED_I2CD_BUS_BUSY_STS));
+        /* Read command register and only set the SDA_LINE to trigger bus recovery */
+        read_cmd_reg_sda_line_set = Returns(EXPECT_CALL(readl(u32_eq(test,
+                                                                     ASPEED_I2C_CMD_REG))),
+                                            u32_return(test, ASPEED_I2CD_SDA_LINE_STS));
+        /* Stop the bus */
+        write_stop_cmd = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_M_STOP_CMD),
+                                            u32_eq(test, ASPEED_I2C_CMD_REG)));
+
+        /* Disable all interrupts */
+        disable_intr = EXPECT_CALL(writel(u32_eq(test, 0),
+                                          u32_eq(test, ASPEED_I2C_INTR_CTRL_REG)));
+
+        /* Ack all interrupts */
+        ack_all_intr = EXPECT_CALL(writel(u32_eq(test, 0xffffffff),
+                                          u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
+
+        /* Disable everything */
+        disable_aspeed = EXPECT_CALL(writel(u32_eq(test, 0),
+                                            u32_eq(test, ASPEED_I2C_FUN_CTRL_REG)));
+
+        /* Read Timing Register and initialize the aspeed clock */
+        /* TODO(halehri): Maybe test this with better values */
+        read_clk_reg_value = Returns(EXPECT_CALL(readl(u32_eq(test, ASPEED_I2C_AC_TIMING_REG1))),
+                                     u32_return(test, 0));
+
+        write_clk_reg_value = EXPECT_CALL(writel(u32_eq(test, 0),
+                                                 u32_eq(test, ASPEED_I2C_AC_TIMING_REG1)));
+
+        write_no_timeout_ctrl = EXPECT_CALL(writel(u32_eq(test, ASPEED_NO_TIMEOUT_CTRL),
+                                                   u32_eq(test, ASPEED_I2C_AC_TIMING_REG2)));
+
+        /* Enable Master mode */
+        read_func_ctrl_reg = Returns(EXPECT_CALL(readl(u32_eq(test, ASPEED_I2C_FUN_CTRL_REG))),
+                                     u32_return(test, 0));
+
+        enable_master_mode = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_MASTER_EN | ASPEED_I2CD_MULTI_MASTER_DIS),
+                                                u32_eq(test, ASPEED_I2C_FUN_CTRL_REG)));
+
+        /* Enable interrupts again */
+        enable_interrupts = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_INTR_ALL),
+                                               u32_eq(test, ASPEED_I2C_INTR_CTRL_REG)));
+
+        InSequence(test, read_cmd_reg_bus_busy, read_cmd_reg_sda_line_set,
+                   write_stop_cmd, disable_intr, ack_all_intr, disable_aspeed,
+                   read_clk_reg_value, write_clk_reg_value, write_no_timeout_ctrl,
+                   read_func_ctrl_reg, enable_master_mode, enable_interrupts);
+
+        aspeed_i2c_master_xfer_start_transaction(test, /*precondition=*/enable_interrupts);
+}
+
+static void aspeed_i2c_master_xfer_test_recover_bus_error(struct test *test) {
+        /* Expectation set during the recovery phase. */
+        struct mock_expectation *read_cmd_reg_bus_busy, *read_cmd_reg_sda_hung,
+            *write_bus_recovery_cmd, *disable_intr, *ack_all_intr, *disable_aspeed,
+            *read_clk_reg_value, *write_clk_reg_value, *write_no_timeout_ctrl,
+            *read_func_ctrl_reg, *enable_master_mode, *enable_interrupts;
+
+        /* Read command register and return state that indicates the bus to be busy */
+        read_cmd_reg_bus_busy = Returns(EXPECT_CALL(readl(u32_eq(test,
+                                                                 ASPEED_I2C_CMD_REG))),
+                                        u32_return(test, ASPEED_I2CD_BUS_BUSY_STS));
+        /* Read command register and return value that triggers a bus error (SDA hung) */
+        read_cmd_reg_sda_hung = Returns(EXPECT_CALL(readl(u32_eq(test,
+                                                                 ASPEED_I2C_CMD_REG))),
+                                        u32_return(test, 0));
+        /* This is the only difference between the previous test case and this one.
+         * The Bus is not stopped and Bus Recovery Command gets written to
+         * the command register.
+         */
+        write_bus_recovery_cmd = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_BUS_RECOVER_CMD),
+                                                    u32_eq(test, ASPEED_I2C_CMD_REG)));
+
+        /* Disable all interrupts */
+        disable_intr = EXPECT_CALL(writel(u32_eq(test, 0),
+                                          u32_eq(test, ASPEED_I2C_INTR_CTRL_REG)));
+
+        /* Ack all interrupts */
+        ack_all_intr = EXPECT_CALL(writel(u32_eq(test, 0xffffffff),
+                                          u32_eq(test, ASPEED_I2C_INTR_STS_REG)));
+
+        /* Disable everything */
+        disable_aspeed = EXPECT_CALL(writel(u32_eq(test, 0),
+                                            u32_eq(test, ASPEED_I2C_FUN_CTRL_REG)));
+
+        /* Read Timing Register and initialize the aspeed clock */
+        /* TODO(halehri): Maybe test this with better values */
+        read_clk_reg_value = Returns(EXPECT_CALL(readl(u32_eq(test, ASPEED_I2C_AC_TIMING_REG1))),
+                                     u32_return(test, 0));
+
+        write_clk_reg_value = EXPECT_CALL(writel(u32_eq(test, 0),
+                                                 u32_eq(test, ASPEED_I2C_AC_TIMING_REG1)));
+
+        write_no_timeout_ctrl = EXPECT_CALL(writel(u32_eq(test, ASPEED_NO_TIMEOUT_CTRL),
+                                                   u32_eq(test, ASPEED_I2C_AC_TIMING_REG2)));
+
+        /* Enable Master mode */
+        read_func_ctrl_reg = Returns(EXPECT_CALL(readl(u32_eq(test, ASPEED_I2C_FUN_CTRL_REG))),
+                                     u32_return(test, 0));
+
+        enable_master_mode = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_MASTER_EN | ASPEED_I2CD_MULTI_MASTER_DIS),
+                                                u32_eq(test, ASPEED_I2C_FUN_CTRL_REG)));
+
+        /* Enable interrupts again */
+        enable_interrupts = EXPECT_CALL(writel(u32_eq(test, ASPEED_I2CD_INTR_ALL),
+                                               u32_eq(test, ASPEED_I2C_INTR_CTRL_REG)));
+
+        InSequence(test, read_cmd_reg_bus_busy, read_cmd_reg_sda_hung,
+                   write_bus_recovery_cmd, disable_intr, ack_all_intr, disable_aspeed,
+                   read_clk_reg_value, write_clk_reg_value, write_no_timeout_ctrl,
+                   read_func_ctrl_reg, enable_master_mode, enable_interrupts);
+
+        aspeed_i2c_master_xfer_start_transaction(test, /*precondition=*/enable_interrupts);
 }
 
 static u32 aspeed_i2c_get_base_clk(u32 reg_val)
@@ -371,7 +529,6 @@ static int aspeed_i2c_test_init(struct test *test)
 	struct mock_param_capturer *adap_capturer,
 				   *irq_capturer,
 				   *irq_ctx_capturer;
-	struct mock_expectation *handle;
 	struct aspeed_i2c_test *ctx;
 
 	mock_set_default_action(mock_get_global_mock(),
@@ -384,9 +541,8 @@ static int aspeed_i2c_test_init(struct test *test)
 				int_return(test, 0));
 
 	/* TODO(brendanhiggins@google.com): Fix this so mock_validate works. */
-	handle = RetireOnSaturation(Returns(EXPECT_CALL(readl(any(test))),
-                                            u32_return(test, 0)));
-	handle->max_calls_expected = 2;
+	Between(1, 2, RetireOnSaturation(Returns(EXPECT_CALL(readl(any(test))),
+                                                 u32_return(test, 0))));
         RetireOnSaturation(EXPECT_CALL(
             writel(u32_eq(test, 0),
                    u32_eq(test, ASPEED_I2C_INTR_CTRL_REG))));
@@ -474,7 +630,10 @@ static void aspeed_i2c_test_exit(struct test *test)
 }
 
 static struct test_case aspeed_i2c_test_cases[] = {
-	TEST_CASE(aspeed_i2c_master_xfer_test_basic),
+        TEST_CASE(aspeed_i2c_master_xfer_test_basic),
+        TEST_CASE(aspeed_i2c_master_xfer_test_idle_bus),
+        TEST_CASE(aspeed_i2c_master_xfer_test_recover_bus_reset),
+        TEST_CASE(aspeed_i2c_master_xfer_test_recover_bus_error),
 	TEST_CASE(aspeed_i2c_24xx_get_clk_reg_val_test_min),
 	TEST_CASE(aspeed_i2c_24xx_get_clk_reg_val_test_max),
 	TEST_CASE(aspeed_i2c_24xx_get_clk_reg_val_test_datasheet),
