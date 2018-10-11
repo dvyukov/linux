@@ -24,7 +24,6 @@ static u32 aspeed_i2c_fake_read_intr_sts_reg(struct fake_device *fd)
 {
 	struct aspeed_i2c_fake *i2c_fake = fake_get_data(fd);
 
-
 	return i2c_fake->interrupts_set;
 }
 
@@ -49,10 +48,32 @@ static void aspeed_i2c_fake_write_byte_buf_reg(struct fake_device *fd, u32 value
 	i2c_fake->tx_buffer = value & 0xff;
 }
 
+static u32 aspeed_i2c_fake_read_command_reg(struct fake_device *fd)
+{
+	struct aspeed_i2c_fake *i2c_fake = fake_get_data(fd);
+
+	if (i2c_fake->sda_hung) {
+		return ASPEED_I2CD_BUS_BUSY_STS | ASPEED_I2CD_SCL_LINE_STS;
+	} else if (i2c_fake->scl_hung) {
+		return ASPEED_I2CD_BUS_BUSY_STS | ASPEED_I2CD_SDA_LINE_STS;
+	} else if (i2c_fake->busy) {
+		i2c_fake->busy = false;
+		return ASPEED_I2CD_BUS_BUSY_STS | ASPEED_I2CD_SDA_LINE_STS | ASPEED_I2CD_SCL_LINE_STS;
+	}
+
+	return 0;
+}
+
 static void aspeed_i2c_fake_write_command_reg(struct fake_device *fd, u32 value)
 {
 	struct aspeed_i2c_fake *i2c_fake = fake_get_data(fd);
 	struct test *test = fake_get_test(fd);
+
+	if (i2c_fake->scl_hung)
+		goto scl_hung;
+
+	if (i2c_fake->sda_hung)
+		goto sda_hung;
 
 	if (value & ASPEED_I2CD_M_START_CMD) {
 		EXPECT_TRUE(test, i2c_fake->can_restart);
@@ -84,10 +105,28 @@ static void aspeed_i2c_fake_write_command_reg(struct fake_device *fd, u32 value)
 		i2c_fake->can_restart = true;
 	}
 
+	/*
+	 * If SCL is hung, we can sometimes recover by issuing a STOP command,
+	 * but nothing else is likely to work.
+	 */
+scl_hung:
 	if (value & ASPEED_I2CD_M_STOP_CMD) {
 		EXPECT_TRUE(test, i2c_fake->can_restart);
 		i2c_fake->current_msg = NULL;
+		i2c_fake->scl_hung = false;
 		aspeed_i2c_fake_set_irq(fd, ASPEED_I2CD_INTR_NORMAL_STOP);
+	}
+
+	/*
+	 * Aspeed's recover command works by trying to toggle the SCL line a
+	 * bunch to get the slave device to let go of SDA.
+	 *
+	 * We still try it if SCL is hung and issuing a STOP didn't work.
+	 */
+sda_hung:
+	if (value & ASPEED_I2CD_BUS_RECOVER_CMD) {
+		i2c_fake->sda_hung = false;
+		aspeed_i2c_fake_set_irq(fd, ASPEED_I2CD_INTR_BUS_RECOVER_DONE);
 	}
 }
 
@@ -97,7 +136,7 @@ static struct fake_register_map_entry aspeed_i2c_fake_register_map[] = {
 	FAKE_32_NOP(ASPEED_I2C_AC_TIMING_REG2),
 	FAKE_32_WO(ASPEED_I2C_INTR_CTRL_REG, aspeed_i2c_fake_write_intr_ctrl_reg),
 	FAKE_32_RW(ASPEED_I2C_INTR_STS_REG, aspeed_i2c_fake_read_intr_sts_reg, aspeed_i2c_fake_write_intr_sts_reg),
-	FAKE_32_WO(ASPEED_I2C_CMD_REG, aspeed_i2c_fake_write_command_reg),
+	FAKE_32_RW(ASPEED_I2C_CMD_REG, aspeed_i2c_fake_read_command_reg, aspeed_i2c_fake_write_command_reg),
 	FAKE_32_NOP(ASPEED_I2C_DEV_ADDR_REG),
 	FAKE_32_RW(ASPEED_I2C_BYTE_BUF_REG, aspeed_i2c_fake_read_byte_buf_reg, aspeed_i2c_fake_write_byte_buf_reg),
 	{},

@@ -16,6 +16,9 @@ struct aspeed_i2c_fake {
 	size_t msgs_count;
 	bool address_active;
 	bool can_restart;
+	bool busy;
+	bool scl_hung;
+	bool sda_hung;
 	u8 tx_buffer;
 	u8 rx_buffer;
 };
