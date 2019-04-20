@@ -798,7 +798,9 @@
 		KEEP(*(.security_initcall.init))			\
 		__security_initcall_end = .;
 
+/* Alignment must be consistent with (test_module *) in include/test/test.h */
 #define KUNIT_TEST_MODULES						\
+		. = ALIGN(8);						\
 		__test_modules_start = .;				\
 		KEEP(*(.test_modules))					\
 		__test_modules_end = .;
