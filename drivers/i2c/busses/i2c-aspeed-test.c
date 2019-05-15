@@ -579,7 +579,7 @@ static int aspeed_i2c_test_init(struct test *test)
         //            u32_eq(test, ASPEED_I2C_AC_TIMING_REG2))));
 
 	Returns(EXPECT_CALL(devm_ioremap_resource(any(test), any(test))),
-                int_return(test, 0));
+                ptr_return(test, 0));
 
 	Returns(EXPECT_CALL(__devm_reset_control_get(any(test),
 						     any(test),
