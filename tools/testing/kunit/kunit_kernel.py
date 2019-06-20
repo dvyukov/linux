@@ -38,7 +38,7 @@ class LinuxSourceTreeOperations(object):
 		try:
 			subprocess.check_output(['make', 'mrproper'])
 		except OSError as e:
-			raise ConfigError('Could not call make command: ' + e)
+			raise ConfigError('Could not call make command: ' + str(e))
 		except subprocess.CalledProcessError as e:
 			raise ConfigError(e.output)
 
@@ -46,7 +46,7 @@ class LinuxSourceTreeOperations(object):
 		try:
 			subprocess.check_output(['make', 'ARCH=um', 'olddefconfig'])
 		except OSError as e:
-			raise ConfigError('Could not call make command: ' + e)
+			raise ConfigError('Could not call make command: ' + str(e))
 		except subprocess.CalledProcessError as e:
 			raise ConfigError(e.output)
 
@@ -54,7 +54,7 @@ class LinuxSourceTreeOperations(object):
 		try:
 			subprocess.check_output(['make', 'ARCH=um', '--jobs=' + str(jobs)])
 		except OSError as e:
-			raise BuildError('Could not call execute make: ' + e)
+			raise BuildError('Could not call execute make: ' + str(e))
 		except subprocess.CalledProcessError as e:
 			raise BuildError(e.output)
 
