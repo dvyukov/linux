@@ -237,5 +237,19 @@ class KUnitMainTest(unittest.TestCase):
 		self.print_mock.assert_any_call(StrContains('i2c-aspeed'))
 		self.print_mock.assert_any_call(StrContains('aspeed_i2c'))
 
+class KUnitKernelTest(unittest.TestCase):
+	def test_not_subset_throw_exception(self):
+		supersetConfig = kunit_config.Kconfig()
+		subsetConfig = kunit_config.Kconfig()
+		subsetConfig.add_entry(kunit_config.KconfigEntry('CONFIG_TEST=y'))
+		with self.assertRaises(kunit_kernel.ConfigError):
+			kunit_kernel.throw_error_if_not_subset(supersetConfig, subsetConfig)
+
+	def test_not_subset_no_exception(self):
+		subsetConfig = kunit_config.Kconfig()
+		supersetConfig = kunit_config.Kconfig()
+		supersetConfig.add_entry(kunit_config.KconfigEntry('CONFIG_TEST=y'))
+		kunit_kernel.throw_error_if_not_subset(supersetConfig, subsetConfig)
+
 if __name__ == '__main__':
 	unittest.main()
