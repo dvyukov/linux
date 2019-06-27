@@ -3,18 +3,30 @@ from datetime import datetime
 
 from collections import namedtuple
 
-TestResult = namedtuple('TestResult', ['status','modules','log'])
-
-TestModule = namedtuple('TestModule', ['status','name','cases'])
-
-TestCase = namedtuple('TestCase', ['status','name','log'])
-
 class TestStatus(object):
 	SUCCESS = 'SUCCESS'
 	FAILURE = 'FAILURE'
 	TEST_CRASHED = 'TEST_CRASHED'
 	TIMED_OUT = 'TIMED_OUT'
 	KERNEL_CRASHED = 'KERNEL_CRASHED'
+
+class TestResult(object):
+	def __init__(self, status=TestStatus.SUCCESS, modules=None, kernel_log='',
+			log_lines=None):
+		self.status = status
+		self.modules = modules or []
+		self.kernel_log = kernel_log
+		self.log_lines = log_lines or []
+
+	def pretty_log(self, msg):
+		self.log_lines.append(msg)
+
+	def print_pretty_log(self):
+		print('\n'.join(self.log_lines))
+
+TestModule = namedtuple('TestModule', ['status','name','cases'])
+
+TestCase = namedtuple('TestCase', ['status','name','log'])
 
 kunit_start_re = re.compile('console .* enabled')
 kunit_end_re = re.compile('List of all partitions:')
@@ -75,8 +87,7 @@ def parse_run_tests(kernel_output):
 	failed_tests = set()
 	crashed_tests = set()
 
-	test_status = TestStatus.SUCCESS
-	modules = []
+	test_result = TestResult()
 	log_list = []
 
 	def get_test_module_name(match):
@@ -96,7 +107,7 @@ def parse_run_tests(kernel_output):
 		del log[:]
 		total_tests.add(get_test_name(match))
 
-	print(timestamp(DIVIDER))
+	test_result.pretty_log(timestamp(DIVIDER))
 	try:
 		for line in kernel_output:
 			log_list.append(line)
@@ -104,8 +115,8 @@ def parse_run_tests(kernel_output):
 			# Ignore module output:
 			module_success = test_module_success.match(line)
 			if module_success:
-				print(timestamp(DIVIDER))
-				modules.append(
+				test_result.pretty_log(timestamp(DIVIDER))
+				test_result.modules.append(
 				  TestModule(TestStatus.SUCCESS,
 					     get_test_module_name(module_success),
 					     current_module_cases))
@@ -113,8 +124,8 @@ def parse_run_tests(kernel_output):
 				continue
 			module_fail = test_module_fail.match(line)
 			if module_fail:
-				print(timestamp(DIVIDER))
-				modules.append(
+				test_result.pretty_log(timestamp(DIVIDER))
+				test_result.modules.append(
 				  TestModule(TestStatus.FAILURE,
 					     get_test_module_name(module_fail),
 					     current_module_cases))
@@ -123,7 +134,8 @@ def parse_run_tests(kernel_output):
 
 			match = re.match(test_case_success, line)
 			if match:
-				print(timestamp(green("[PASSED] ") + get_test_name(match)))
+				test_result.pretty_log(timestamp(green("[PASSED] ") +
+									get_test_name(match)))
 				current_module_cases.append(
 					TestCase(TestStatus.SUCCESS,
 						 get_test_case_name(match),
@@ -136,38 +148,41 @@ def parse_run_tests(kernel_output):
 			# want to show and count it once.
 			if match and get_test_name(match) not in crashed_tests:
 				failed_tests.add(get_test_name(match))
-				print(timestamp(red("[FAILED] " + get_test_name(match))))
+				test_result.pretty_log(timestamp(red("[FAILED] " +
+									get_test_name(match))))
 				for out in timestamp_log(map(yellow, current_case_log)):
-					print(out)
-				print(timestamp(""))
+					test_result.pretty_log(out)
+				test_result.pretty_log(timestamp(""))
 				current_module_cases.append(
 					TestCase(TestStatus.FAILURE,
 						 get_test_case_name(match),
 						 '\n'.join(current_case_log)))
-				if test_status != TestStatus.TEST_CRASHED:
-					test_status = TestStatus.FAILURE
+				if test_result.status != TestStatus.TEST_CRASHED:
+					test_result.status = TestStatus.FAILURE
 				end_one_test(match, current_case_log)
 				continue
 
 			match = re.match(test_case_crash, line)
 			if match:
 				crashed_tests.add(get_test_name(match))
-				print(timestamp(yellow("[CRASH] " + get_test_name(match))))
+				test_result.pretty_log(timestamp(yellow("[CRASH] " +
+									get_test_name(match))))
 				for out in timestamp_log(current_case_log):
-					print(out)
-				print(timestamp(""))
+					test_result.pretty_log(out)
+				test_result.pretty_log(timestamp(""))
 				current_module_cases.append(
 					TestCase(TestStatus.TEST_CRASHED,
 						 get_test_case_name(match),
 						 '\n'.join(current_case_log)))
-				test_status = TestStatus.TEST_CRASHED
+				test_result.status = TestStatus.TEST_CRASHED
 				end_one_test(match, current_case_log)
 				continue
 
 			if line.strip() == TIMED_OUT_LOG_ENTRY:
-				print(timestamp(red("[TIMED-OUT] Process Terminated")))
+				test_result.pretty_log(timestamp(red("[TIMED-OUT] " +
+									 "Process Terminated")))
 				did_timeout = True
-				test_status = TestStatus.TIMED_OUT
+				test_result.status = TestStatus.TIMED_OUT
 				break
 
 			# Strip off the `kunit module-name:` prefix
@@ -178,15 +193,16 @@ def parse_run_tests(kernel_output):
 				current_case_log.append(line)
 	except KernelCrashException:
 		did_kernel_crash = True
-		test_status = TestStatus.KERNEL_CRASHED
-		print(timestamp(red("The KUnit kernel crashed unexpectedly and was " +
+		test_result.status = TestStatus.KERNEL_CRASHED
+		test_result.pretty_log(timestamp(red("The KUnit kernel crashed " +
+							"unexpectedly and was unable " +
 							"unable to finish running tests!")))
-		print(timestamp(red("These are the logs from the most " +
+		test_result.pretty_log(timestamp(red("These are the logs from the most " +
 							"recently running test:")))
-		print(timestamp(DIVIDER))
+		test_result.pretty_log(timestamp(DIVIDER))
 		for out in timestamp_log(current_case_log):
-			print(out)
-		print(timestamp(DIVIDER))
+			test_result.pretty_log(out)
+		test_result.pretty_log(timestamp(DIVIDER))
 
 	fmt = green if (len(failed_tests) + len(crashed_tests) == 0
 			and not did_kernel_crash and not did_timeout) else red
@@ -196,7 +212,8 @@ def parse_run_tests(kernel_output):
 	elif did_timeout:
 		message = "Before timing out:"
 
-	print(timestamp(fmt(message + " %d tests run. %d failed. %d crashed." %
+	test_result.pretty_log(timestamp(fmt(message + " %d tests run. %d failed. %d crashed." %
 				(len(total_tests), len(failed_tests), len(crashed_tests)))))
 
-	return TestResult(test_status, modules, '\n'.join(log_list))
+	test_result.kernel_log = '\n'.join(log_list)
+	return test_result

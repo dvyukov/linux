@@ -55,6 +55,7 @@ def run_tests(linux: kunit_kernel.LinuxSourceTree,
 				kunit_parser.isolate_kunit_output(
 				  linux.run_kernel(timeout=request.timeout)))
 	test_end = time.time()
+	test_result.print_pretty_log()
 
 	print(kunit_parser.timestamp((
 		'Elapsed time: %.3fs total, %.3fs configuring, %.3fs ' +
