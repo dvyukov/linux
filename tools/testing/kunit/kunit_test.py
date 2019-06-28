@@ -237,11 +237,58 @@ class KUnitMainTest(unittest.TestCase):
 		self.print_mock.assert_any_call(StrContains('i2c-aspeed'))
 		self.print_mock.assert_any_call(StrContains('aspeed_i2c'))
 
+
+class TestConfigProvider():
+	def __init__(self, kconfig):
+		self._kconfig = kconfig
+
+	def get_kconfig(self):
+		return self._kconfig
+
+
+class TestLinuxSourceTreeOperationsNoChange(object):
+	def __init__(self, configP):
+		self.configPath = configP
+
+	def make_olddefconfig(self):
+		"""Does not change the file at all and doesn't raise error."""
+
+
+class TestLinuxSourceTreeOperationsDeleteLine(object):
+	def __init__(self, configP):
+		self.configPath = configP
+
+	def make_olddefconfig(self):
+		"""Deletes line in config file and raises ConfigError."""
+
+		configFile = open(self.configPath, "r")
+		lines = configFile.readlines()
+		lines = lines[:-1]
+		configFile = open(self.configPath, "w")
+
+		for l in lines:
+			configFile.write(l)
+
+		raise kunit_kernel.ConfigError('make olddefconfig deleted lines in .config file')
+
+
+class TestLinuxSourceTreeOperationsAddLine(object):
+	def __init__(self, configP):
+		self.configPath = configP
+
+	def make_olddefconfig(self):
+		"""Adds extra line to config file and doesn't raise error."""
+
+		configFile = open(self.configPath, "a")
+		configFile.write("CONFIG_EXAMPLE_TEST=y\n")
+
+
 class KUnitKernelTest(unittest.TestCase):
 	def test_not_subset_throw_exception(self):
 		supersetConfig = kunit_config.Kconfig()
 		subsetConfig = kunit_config.Kconfig()
 		subsetConfig.add_entry(kunit_config.KconfigEntry('CONFIG_TEST=y'))
+
 		with self.assertRaises(kunit_kernel.ConfigError):
 			kunit_kernel.throw_error_if_not_subset(supersetConfig, subsetConfig)
 
@@ -250,6 +297,82 @@ class KUnitKernelTest(unittest.TestCase):
 		supersetConfig = kunit_config.Kconfig()
 		supersetConfig.add_entry(kunit_config.KconfigEntry('CONFIG_TEST=y'))
 		kunit_kernel.throw_error_if_not_subset(supersetConfig, subsetConfig)
+
+	def test_build_reconfig_no_change(self):
+		tempConfig = tempfile.NamedTemporaryFile(delete=False, mode="w+")
+
+		kconfig = kunit_config.Kconfig()
+		kconfig.add_entry(kunit_config.KconfigEntry('CONFIG_TEST=y'))
+		kconfig.add_entry(kunit_config.KconfigEntry('CONFIG_MMU=y'))
+		kconfig.add_entry(kunit_config.KconfigEntry('CONFIG_UML=y'))
+
+		operations = TestLinuxSourceTreeOperationsNoChange(tempConfig.name)
+
+		with mock.patch.object(kunit_kernel, 'KCONFIG_PATH', tempConfig.name):
+			tree = kunit_kernel.LinuxSourceTree(kconfig_provider = TestConfigProvider(kconfig),
+				linux_build_operations = operations)
+
+			tempConfig.write(str('CONFIG_TEST=n\nCONFIG_MMU=y\n'))
+			tempConfig.seek(0)
+
+			returnValue = tree.build_reconfig()
+			self.assertEquals(returnValue.status, kunit_kernel.ConfigStatus.SUCCESS)
+
+	def test_build_reconfig_delete_config_line(self):
+		tempConfig = tempfile.NamedTemporaryFile(delete=False, mode="w+")
+
+		kconfig = kunit_config.Kconfig()
+		kconfig.add_entry(kunit_config.KconfigEntry('CONFIG_TEST=y'))
+		kconfig.add_entry(kunit_config.KconfigEntry('CONFIG_MMU=y'))
+		kconfig.add_entry(kunit_config.KconfigEntry('CONFIG_UML=y'))
+
+		operations = TestLinuxSourceTreeOperationsDeleteLine(tempConfig.name)
+
+		with mock.patch.object(kunit_kernel, 'KCONFIG_PATH', tempConfig.name):
+			tree = kunit_kernel.LinuxSourceTree(kconfig_provider = TestConfigProvider(kconfig),
+				linux_build_operations = operations)
+
+			tempConfig.write(str('CONFIG_TEST=n\nCONFIG_MMU=y\n'))
+			tempConfig.seek(0)
+
+			returnValue = tree.build_reconfig()
+			self.assertEquals(returnValue.status, kunit_kernel.ConfigStatus.FAILURE)
+
+	def test_build_reconfig_add_config_line(self):
+		tempConfig = tempfile.NamedTemporaryFile(delete=False, mode="w+")
+
+		kconfig = kunit_config.Kconfig()
+
+		operations = TestLinuxSourceTreeOperationsAddLine(tempConfig.name)
+
+		with mock.patch.object(kunit_kernel, 'KCONFIG_PATH', tempConfig.name):
+			tree = kunit_kernel.LinuxSourceTree(kconfig_provider = TestConfigProvider(kconfig),
+				linux_build_operations = operations)
+
+			tempConfig.write(str('CONFIG_TEST=n\nCONFIG_MMU=y\n'))
+			tempConfig.seek(0)
+
+			returnValue = tree.build_reconfig()
+			self.assertEquals(returnValue.status, kunit_kernel.ConfigStatus.SUCCESS)
+
+	def test_build_reconfig_file_unavailable(self):
+		tempConfig = tempfile.NamedTemporaryFile(delete=False, mode="w+")
+
+		kconfig = kunit_config.Kconfig()
+
+		operations = TestLinuxSourceTreeOperationsAddLine(tempConfig.name)
+
+		with mock.patch.object(kunit_kernel, 'KCONFIG_PATH', tempConfig.name):
+			os.remove(tempConfig.name)
+			tree = kunit_kernel.LinuxSourceTree(kconfig_provider = TestConfigProvider(kconfig),
+				linux_build_operations = operations)
+
+			tempConfig.write(str('CONFIG_TEST=n\nCONFIG_MMU=y\n'))
+			tempConfig.seek(0)
+
+			returnValue = tree.build_reconfig()
+			self.assertEquals(returnValue.status, kunit_kernel.ConfigStatus.SUCCESS)
+
 
 if __name__ == '__main__':
 	unittest.main()
