@@ -316,7 +316,8 @@ class KUnitKernelTest(unittest.TestCase):
 			tempConfig.seek(0)
 
 			returnValue = tree.build_reconfig()
-			self.assertEquals(returnValue.status, kunit_kernel.ConfigStatus.SUCCESS)
+			self.assertEquals(returnValue.status, kunit_kernel.ConfigStatus.SUCCESS,
+				returnValue.info)
 
 	def test_build_reconfig_delete_config_line(self):
 		tempConfig = tempfile.NamedTemporaryFile(delete=False, mode="w+")
@@ -353,7 +354,8 @@ class KUnitKernelTest(unittest.TestCase):
 			tempConfig.seek(0)
 
 			returnValue = tree.build_reconfig()
-			self.assertEquals(returnValue.status, kunit_kernel.ConfigStatus.SUCCESS)
+			self.assertEquals(returnValue.status, kunit_kernel.ConfigStatus.SUCCESS,
+				returnValue.info)
 
 	def test_build_reconfig_file_unavailable(self):
 		tempConfig = tempfile.NamedTemporaryFile(delete=False, mode="w+")
@@ -371,7 +373,8 @@ class KUnitKernelTest(unittest.TestCase):
 			tempConfig.seek(0)
 
 			returnValue = tree.build_reconfig()
-			self.assertEquals(returnValue.status, kunit_kernel.ConfigStatus.SUCCESS)
+			self.assertEquals(returnValue.status, kunit_kernel.ConfigStatus.SUCCESS,
+				returnValue.info)
 
 
 if __name__ == '__main__':
