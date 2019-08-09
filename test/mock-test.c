@@ -800,6 +800,276 @@ static int mock_test_init(struct test *test)
 	return 0;
 }
 
+static void mock_test_and_matcher_accept(struct test *test)
+{
+	struct mock_test_context *ctx = test->priv;
+	struct MOCK(test) *mock_test = ctx->mock_test;
+	struct test *trgt = mock_get_trgt(mock_test);
+	struct mock *mock = ctx->mock;
+	const int param0 = 5;
+	static const char * const param_types[] = {"int"};
+	const void *params[] = {&param0};
+	struct mock_param_matcher *matchers[] = {
+		and(test, int_gt(test, 4), int_lt(test, 6))
+	};
+	struct mock_expectation *expectation;
+
+	const void *ret;
+
+	expectation = mock_add_matcher(mock,
+				       "",
+				       NULL,
+				       matchers,
+				       ARRAY_SIZE(matchers));
+	expectation->action = int_return(trgt, 0);
+	EXPECT_EQ(test, 0, expectation->times_called);
+
+	ret = mock->do_expect(mock,
+			      "",
+			      NULL,
+			      param_types,
+			      params,
+			      ARRAY_SIZE(params));
+	ASSERT_NOT_ERR_OR_NULL(test, ret);
+	EXPECT_EQ(test, 1, expectation->times_called);
+}
+
+
+static void mock_test_and_matcher_reject_left(struct test *test)
+{
+	struct mock_test_context *ctx = test->priv;
+	struct MOCK(test) *mock_test = ctx->mock_test;
+	struct test *trgt = mock_get_trgt(mock_test);
+	struct mock *mock = ctx->mock;
+	const int param0 = 5;
+	static const char * const param_types[] = {"int"};
+	const void *params[] = {&param0};
+	struct mock_param_matcher *matchers[] = {
+		and(test, int_gt(test, 5), int_lt(test, 6))
+	};
+	struct mock_expectation *expectation;
+	const void *ret;
+
+	expectation = mock_add_matcher(mock,
+				       "",
+				       NULL,
+				       matchers,
+				       ARRAY_SIZE(matchers));
+	expectation->action = int_return(trgt, 0);
+	EXPECT_EQ(test, 0, expectation->times_called);
+
+	ret = mock->do_expect(mock,
+			      "",
+			      NULL,
+			      param_types,
+			      params,
+			      ARRAY_SIZE(params));
+	EXPECT_FALSE(test, ret);
+	EXPECT_EQ(test, 0, expectation->times_called);
+}
+
+static void mock_test_and_matcher_reject_right(struct test *test)
+{
+	struct mock_test_context *ctx = test->priv;
+	struct MOCK(test) *mock_test = ctx->mock_test;
+	struct test *trgt = mock_get_trgt(mock_test);
+	struct mock *mock = ctx->mock;
+	const int param0 = 5;
+	static const char * const param_types[] = {"int"};
+	const void *params[] = {&param0};
+	struct mock_param_matcher *matchers[] = {
+		and(test, int_gt(test, 4), int_lt(test, 5))
+	};
+	struct mock_expectation *expectation;
+	const void *ret;
+
+	expectation = mock_add_matcher(mock,
+				       "",
+				       NULL,
+				       matchers,
+				       ARRAY_SIZE(matchers));
+	expectation->action = int_return(trgt, 0);
+	EXPECT_EQ(test, 0, expectation->times_called);
+
+	ret = mock->do_expect(mock,
+			      "",
+			      NULL,
+			      param_types,
+			      params,
+			      ARRAY_SIZE(params));
+	EXPECT_FALSE(test, ret);
+	EXPECT_EQ(test, 0, expectation->times_called);
+}
+
+static void mock_test_or_matcher_reject(struct test *test)
+{
+	struct mock_test_context *ctx = test->priv;
+	struct MOCK(test) *mock_test = ctx->mock_test;
+	struct test *trgt = mock_get_trgt(mock_test);
+	struct mock *mock = ctx->mock;
+	const int param0 = 5;
+	static const char * const param_types[] = {"int"};
+	const void *params[] = {&param0};
+	struct mock_param_matcher *matchers[] = {
+		or(test, int_lt(test, 4), int_gt(test, 6))
+	};
+	struct mock_expectation *expectation;
+
+	const void *ret;
+
+	expectation = mock_add_matcher(mock,
+				       "",
+				       NULL,
+				       matchers,
+				       ARRAY_SIZE(matchers));
+	expectation->action = int_return(trgt, 0);
+	EXPECT_EQ(test, 0, expectation->times_called);
+
+	ret = mock->do_expect(mock,
+			      "",
+			      NULL,
+			      param_types,
+			      params,
+			      ARRAY_SIZE(params));
+	EXPECT_FALSE(test, ret);
+	EXPECT_EQ(test, 0, expectation->times_called);
+}
+
+
+static void mock_test_or_matcher_accept_left(struct test *test)
+{
+	struct mock_test_context *ctx = test->priv;
+	struct MOCK(test) *mock_test = ctx->mock_test;
+	struct test *trgt = mock_get_trgt(mock_test);
+	struct mock *mock = ctx->mock;
+	const int param0 = 5;
+	static const char * const param_types[] = {"int"};
+	const void *params[] = {&param0};
+	struct mock_param_matcher *matchers[] = {
+		or(test, int_gt(test, 4), int_gt(test, 6))
+	};
+	struct mock_expectation *expectation;
+	const void *ret;
+
+	expectation = mock_add_matcher(mock,
+				       "",
+				       NULL,
+				       matchers,
+				       ARRAY_SIZE(matchers));
+	expectation->action = int_return(trgt, 0);
+	EXPECT_EQ(test, 0, expectation->times_called);
+
+	ret = mock->do_expect(mock,
+			      "",
+			      NULL,
+			      param_types,
+			      params,
+			      ARRAY_SIZE(params));
+	ASSERT_NOT_ERR_OR_NULL(test, ret);
+	EXPECT_EQ(test, 1, expectation->times_called);
+}
+
+static void mock_test_or_matcher_accept_right(struct test *test)
+{
+	struct mock_test_context *ctx = test->priv;
+	struct MOCK(test) *mock_test = ctx->mock_test;
+	struct test *trgt = mock_get_trgt(mock_test);
+	struct mock *mock = ctx->mock;
+	const int param0 = 5;
+	static const char * const param_types[] = {"int"};
+	const void *params[] = {&param0};
+	struct mock_param_matcher *matchers[] = {
+		or(test, int_lt(test, 4), int_lt(test, 6))
+	};
+	struct mock_expectation *expectation;
+	const void *ret;
+
+	expectation = mock_add_matcher(mock,
+				       "",
+				       NULL,
+				       matchers,
+				       ARRAY_SIZE(matchers));
+	expectation->action = int_return(trgt, 0);
+	EXPECT_EQ(test, 0, expectation->times_called);
+
+	ret = mock->do_expect(mock,
+			      "",
+			      NULL,
+			      param_types,
+			      params,
+			      ARRAY_SIZE(params));
+	ASSERT_NOT_ERR_OR_NULL(test, ret);
+	EXPECT_EQ(test, 1, expectation->times_called);
+}
+
+static void mock_test_not_matcher_reject(struct test *test)
+{
+	struct mock_test_context *ctx = test->priv;
+	struct MOCK(test) *mock_test = ctx->mock_test;
+	struct test *trgt = mock_get_trgt(mock_test);
+	struct mock *mock = ctx->mock;
+	const int param0 = 5;
+	static const char * const param_types[] = {"int"};
+	const void *params[] = {&param0};
+	struct mock_param_matcher *matchers[] = {
+		not(test, int_eq(test, 5))
+	};
+	struct mock_expectation *expectation;
+
+	const void *ret;
+
+	expectation = mock_add_matcher(mock,
+				       "",
+				       NULL,
+				       matchers,
+				       ARRAY_SIZE(matchers));
+	expectation->action = int_return(trgt, 0);
+	EXPECT_EQ(test, 0, expectation->times_called);
+
+	ret = mock->do_expect(mock,
+			      "",
+			      NULL,
+			      param_types,
+			      params,
+			      ARRAY_SIZE(params));
+	EXPECT_FALSE(test, ret);
+	EXPECT_EQ(test, 0, expectation->times_called);
+}
+
+
+static void mock_test_not_matcher_accept(struct test *test)
+{
+	struct mock_test_context *ctx = test->priv;
+	struct MOCK(test) *mock_test = ctx->mock_test;
+	struct test *trgt = mock_get_trgt(mock_test);
+	struct mock *mock = ctx->mock;
+	const int param0 = 5;
+	static const char * const param_types[] = {"int"};
+	const void *params[] = {&param0};
+	struct mock_param_matcher *matchers[] = {
+		not(test, int_eq(test, 100500))
+	};
+	struct mock_expectation *expectation;
+	const void *ret;
+
+	expectation = mock_add_matcher(mock,
+				       "",
+				       NULL,
+				       matchers,
+				       ARRAY_SIZE(matchers));
+	expectation->action = int_return(trgt, 0);
+	EXPECT_EQ(test, 0, expectation->times_called);
+
+	ret = mock->do_expect(mock,
+			      "",
+			      NULL,
+			      param_types,
+			      params,
+			      ARRAY_SIZE(params));
+	ASSERT_NOT_ERR_OR_NULL(test, ret);
+	EXPECT_EQ(test, 1, expectation->times_called);
+}
+
 static struct test_case mock_test_cases[] = {
 	TEST_CASE(mock_test_do_expect_basic),
 	TEST_CASE(mock_test_ptr_eq),
@@ -819,13 +1089,21 @@ static struct test_case mock_test_cases[] = {
 	TEST_CASE(mock_test_in_sequence_abc_success),
 	TEST_CASE(mock_test_in_sequence_bac_success),
 	TEST_CASE(mock_test_in_sequence_no_a_fail),
-        TEST_CASE(mock_test_in_sequence_retire_on_saturation),
-        TEST_CASE(mock_test_atleast),
-        TEST_CASE(mock_test_atleast_fail),
-        TEST_CASE(mock_test_atmost),
-        TEST_CASE(mock_test_atmost_fail),
-        TEST_CASE(mock_test_between),
-        TEST_CASE(mock_test_between_fail),
+	TEST_CASE(mock_test_in_sequence_retire_on_saturation),
+	TEST_CASE(mock_test_atleast),
+	TEST_CASE(mock_test_atleast_fail),
+	TEST_CASE(mock_test_atmost),
+	TEST_CASE(mock_test_atmost_fail),
+	TEST_CASE(mock_test_between),
+	TEST_CASE(mock_test_between_fail),
+	TEST_CASE(mock_test_and_matcher_accept),
+	TEST_CASE(mock_test_and_matcher_reject_left),
+	TEST_CASE(mock_test_and_matcher_reject_right),
+	TEST_CASE(mock_test_or_matcher_reject),
+	TEST_CASE(mock_test_or_matcher_accept_left),
+	TEST_CASE(mock_test_or_matcher_accept_right),
+	TEST_CASE(mock_test_not_matcher_reject),
+	TEST_CASE(mock_test_not_matcher_accept),
         {},
 };
 

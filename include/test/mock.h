@@ -1265,6 +1265,15 @@ struct mock_param_matcher *va_format_cmp(struct test *test,
 					 struct mock_param_matcher *fmt_matcher,
 					 struct mock_param_matcher *va_matcher);
 
+/* Compound matchers */
+struct mock_param_matcher *and(struct test *test,
+			       struct mock_param_matcher *left_matcher,
+			       struct mock_param_matcher *right_matcher);
+struct mock_param_matcher *or(struct test *test,
+			      struct mock_param_matcher *left_matcher,
+			      struct mock_param_matcher *right_matcher);
+struct mock_param_matcher *not(struct test *test,
+			       struct mock_param_matcher *inner_matcher);
 struct mock_action *u8_return(struct test *test, u8 ret);
 struct mock_action *u16_return(struct test *test, u16 ret);
 struct mock_action *u32_return(struct test *test, u32 ret);
