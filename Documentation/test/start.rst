@@ -212,7 +212,7 @@ Now you can run the test:
 
 .. code-block:: bash
 
-	./tools/testing/kunit/kunit.py
+	./tools/testing/kunit/kunit.py run
 
 You should see the following failure:
 
