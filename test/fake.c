@@ -97,11 +97,11 @@ void fake_device_init(struct test *test,
 	fd->writel_action.do_action = fake_writel_action;
 
 	mock_set_default_action(mock_get_global_mock(),
-				"readl",
-				readl,
+				"kunit_readl",
+				kunit_readl,
 				&fd->readl_action);
 	mock_set_default_action(mock_get_global_mock(),
-				"writel",
-				writel,
+				"kunit_writel",
+				kunit_writel,
 				&fd->writel_action);
 }

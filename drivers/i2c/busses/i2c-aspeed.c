@@ -87,7 +87,7 @@ static int aspeed_i2c_recover_bus(struct aspeed_i2c_bus *bus)
 	u32 command;
 
 	spin_lock_irqsave(&bus->lock, flags);
-	command = readl(bus->base + ASPEED_I2C_CMD_REG);
+	command = kunit_readl(bus->base + ASPEED_I2C_CMD_REG);
 
 	if (command & ASPEED_I2CD_SDA_LINE_STS) {
 		/* Bus is idle: no recovery needed. */
@@ -97,7 +97,7 @@ static int aspeed_i2c_recover_bus(struct aspeed_i2c_bus *bus)
 			command);
 
 		reinit_completion(&bus->cmd_complete);
-		writel(ASPEED_I2CD_M_STOP_CMD, bus->base + ASPEED_I2C_CMD_REG);
+		kunit_writel(ASPEED_I2CD_M_STOP_CMD, bus->base + ASPEED_I2C_CMD_REG);
 		spin_unlock_irqrestore(&bus->lock, flags);
 
 		time_left = wait_for_completion_timeout(
@@ -109,7 +109,7 @@ static int aspeed_i2c_recover_bus(struct aspeed_i2c_bus *bus)
 		else if (bus->cmd_err)
 			goto reset_out;
 		/* Recovery failed. */
-		else if (!(readl(bus->base + ASPEED_I2C_CMD_REG) &
+		else if (!(kunit_readl(bus->base + ASPEED_I2C_CMD_REG) &
 			   ASPEED_I2CD_SCL_LINE_STS))
 			goto reset_out;
 	/* Bus error. */
@@ -119,7 +119,7 @@ static int aspeed_i2c_recover_bus(struct aspeed_i2c_bus *bus)
 
 		reinit_completion(&bus->cmd_complete);
 		/* Writes 1 to 8 SCL clock cycles until SDA is released. */
-		writel(ASPEED_I2CD_BUS_RECOVER_CMD,
+		kunit_writel(ASPEED_I2CD_BUS_RECOVER_CMD,
 		       bus->base + ASPEED_I2C_CMD_REG);
 		spin_unlock_irqrestore(&bus->lock, flags);
 
@@ -132,7 +132,7 @@ static int aspeed_i2c_recover_bus(struct aspeed_i2c_bus *bus)
 		else if (bus->cmd_err)
 			goto reset_out;
 		/* Recovery failed. */
-		else if (!(readl(bus->base + ASPEED_I2C_CMD_REG) &
+		else if (!(kunit_readl(bus->base + ASPEED_I2C_CMD_REG) &
 			   ASPEED_I2CD_SDA_LINE_STS))
 			goto reset_out;
 	}
@@ -161,8 +161,8 @@ static bool aspeed_i2c_slave_irq(struct aspeed_i2c_bus *bus)
 		goto out;
 	}
 
-	command = readl(bus->base + ASPEED_I2C_CMD_REG);
-	irq_status = readl(bus->base + ASPEED_I2C_INTR_STS_REG);
+	command = kunit_readl(bus->base + ASPEED_I2C_CMD_REG);
+	irq_status = kunit_readl(bus->base + ASPEED_I2C_INTR_STS_REG);
 
 	/* Slave was requested, restart state machine. */
 	if (irq_status & ASPEED_I2CD_INTR_SLAVE_MATCH) {
@@ -181,7 +181,7 @@ static bool aspeed_i2c_slave_irq(struct aspeed_i2c_bus *bus)
 
 	/* Slave was sent something. */
 	if (irq_status & ASPEED_I2CD_INTR_RX_DONE) {
-		value = readl(bus->base + ASPEED_I2C_BYTE_BUF_REG) >> 8;
+		value = kunit_readl(bus->base + ASPEED_I2C_BYTE_BUF_REG) >> 8;
 		/* Handle address frame. */
 		if (bus->slave_state == ASPEED_I2C_SLAVE_START) {
 			if (value & 0x1)
@@ -211,8 +211,8 @@ static bool aspeed_i2c_slave_irq(struct aspeed_i2c_bus *bus)
 		bus->slave_state = ASPEED_I2C_SLAVE_READ_PROCESSED;
 
 		i2c_slave_event(slave, I2C_SLAVE_READ_REQUESTED, &value);
-		writel(value, bus->base + ASPEED_I2C_BYTE_BUF_REG);
-		writel(ASPEED_I2CD_S_TX_CMD, bus->base + ASPEED_I2C_CMD_REG);
+		kunit_writel(value, bus->base + ASPEED_I2C_BYTE_BUF_REG);
+		kunit_writel(ASPEED_I2CD_S_TX_CMD, bus->base + ASPEED_I2C_CMD_REG);
 		break;
 	case ASPEED_I2C_SLAVE_READ_PROCESSED:
 		status_ack |= ASPEED_I2CD_INTR_TX_ACK;
@@ -220,8 +220,8 @@ static bool aspeed_i2c_slave_irq(struct aspeed_i2c_bus *bus)
 			dev_err(bus->dev,
 				"Expected ACK after processed read.\n");
 		i2c_slave_event(slave, I2C_SLAVE_READ_PROCESSED, &value);
-		writel(value, bus->base + ASPEED_I2C_BYTE_BUF_REG);
-		writel(ASPEED_I2CD_S_TX_CMD, bus->base + ASPEED_I2C_CMD_REG);
+		kunit_writel(value, bus->base + ASPEED_I2C_BYTE_BUF_REG);
+		kunit_writel(ASPEED_I2CD_S_TX_CMD, bus->base + ASPEED_I2C_CMD_REG);
 		break;
 	case ASPEED_I2C_SLAVE_WRITE_REQUESTED:
 		bus->slave_state = ASPEED_I2C_SLAVE_WRITE_RECEIVED;
@@ -243,7 +243,7 @@ static bool aspeed_i2c_slave_irq(struct aspeed_i2c_bus *bus)
 		dev_err(bus->dev,
 			"irq handled != irq. expected %x, but was %x\n",
 			irq_status, status_ack);
-	writel(status_ack, bus->base + ASPEED_I2C_INTR_STS_REG);
+	kunit_writel(status_ack, bus->base + ASPEED_I2C_INTR_STS_REG);
 
 out:
 	return irq_handled;
@@ -267,15 +267,15 @@ static void aspeed_i2c_do_start(struct aspeed_i2c_bus *bus)
 			command |= ASPEED_I2CD_M_S_RX_CMD_LAST;
 	}
 
-	writel(slave_addr, bus->base + ASPEED_I2C_BYTE_BUF_REG);
-	writel(command, bus->base + ASPEED_I2C_CMD_REG);
+	kunit_writel(slave_addr, bus->base + ASPEED_I2C_BYTE_BUF_REG);
+	kunit_writel(command, bus->base + ASPEED_I2C_CMD_REG);
 }
 
 /* precondition: bus.lock has been acquired. */
 static void aspeed_i2c_do_stop(struct aspeed_i2c_bus *bus)
 {
 	bus->master_state = ASPEED_I2C_MASTER_STOP;
-	writel(ASPEED_I2CD_M_STOP_CMD, bus->base + ASPEED_I2C_CMD_REG);
+	kunit_writel(ASPEED_I2CD_M_STOP_CMD, bus->base + ASPEED_I2C_CMD_REG);
 }
 
 /* precondition: bus.lock has been acquired. */
@@ -309,9 +309,9 @@ static bool aspeed_i2c_master_irq(struct aspeed_i2c_bus *bus)
 	u8 recv_byte;
 	int ret;
 
-	irq_status = readl(bus->base + ASPEED_I2C_INTR_STS_REG);
+	irq_status = kunit_readl(bus->base + ASPEED_I2C_INTR_STS_REG);
 	/* Ack all interrupt bits. */
-	writel(irq_status, bus->base + ASPEED_I2C_INTR_STS_REG);
+	kunit_writel(irq_status, bus->base + ASPEED_I2C_INTR_STS_REG);
 
 	if (irq_status & ASPEED_I2CD_INTR_BUS_RECOVER_DONE) {
 		bus->master_state = ASPEED_I2C_MASTER_INACTIVE;
@@ -382,9 +382,9 @@ static bool aspeed_i2c_master_irq(struct aspeed_i2c_bus *bus)
 	case ASPEED_I2C_MASTER_TX_FIRST:
 		if (bus->buf_index < msg->len) {
 			bus->master_state = ASPEED_I2C_MASTER_TX;
-			writel(msg->buf[bus->buf_index++],
+			kunit_writel(msg->buf[bus->buf_index++],
 			       bus->base + ASPEED_I2C_BYTE_BUF_REG);
-			writel(ASPEED_I2CD_M_TX_CMD,
+			kunit_writel(ASPEED_I2CD_M_TX_CMD,
 			       bus->base + ASPEED_I2C_CMD_REG);
 		} else {
 			aspeed_i2c_next_msg_or_stop(bus);
@@ -402,7 +402,7 @@ static bool aspeed_i2c_master_irq(struct aspeed_i2c_bus *bus)
 		}
 		status_ack |= ASPEED_I2CD_INTR_RX_DONE;
 
-		recv_byte = readl(bus->base + ASPEED_I2C_BYTE_BUF_REG) >> 8;
+		recv_byte = kunit_readl(bus->base + ASPEED_I2C_BYTE_BUF_REG) >> 8;
 		msg->buf[bus->buf_index++] = recv_byte;
 
 		if (msg->flags & I2C_M_RECV_LEN) {
@@ -421,7 +421,7 @@ static bool aspeed_i2c_master_irq(struct aspeed_i2c_bus *bus)
 			command = ASPEED_I2CD_M_RX_CMD;
 			if (bus->buf_index + 1 == msg->len)
 				command |= ASPEED_I2CD_M_S_RX_CMD_LAST;
-			writel(command, bus->base + ASPEED_I2C_CMD_REG);
+			kunit_writel(command, bus->base + ASPEED_I2C_CMD_REG);
 		} else {
 			aspeed_i2c_next_msg_or_stop(bus);
 		}
@@ -504,7 +504,7 @@ static int aspeed_i2c_master_xfer(struct i2c_adapter *adap,
 	/* If bus is busy, attempt recovery. We assume a single master
 	 * environment.
 	 */
-	if (readl(bus->base + ASPEED_I2C_CMD_REG) & ASPEED_I2CD_BUS_BUSY_STS) {
+	if (kunit_readl(bus->base + ASPEED_I2C_CMD_REG) & ASPEED_I2CD_BUS_BUSY_STS) {
 		spin_unlock_irqrestore(&bus->lock, flags);
 		ret = aspeed_i2c_recover_bus(bus);
 		if (ret)
@@ -542,15 +542,15 @@ static void __aspeed_i2c_reg_slave(struct aspeed_i2c_bus *bus, u16 slave_addr)
 	u32 addr_reg_val, func_ctrl_reg_val;
 
 	/* Set slave addr. */
-	addr_reg_val = readl(bus->base + ASPEED_I2C_DEV_ADDR_REG);
+	addr_reg_val = kunit_readl(bus->base + ASPEED_I2C_DEV_ADDR_REG);
 	addr_reg_val &= ~ASPEED_I2CD_DEV_ADDR_MASK;
 	addr_reg_val |= slave_addr & ASPEED_I2CD_DEV_ADDR_MASK;
-	writel(addr_reg_val, bus->base + ASPEED_I2C_DEV_ADDR_REG);
+	kunit_writel(addr_reg_val, bus->base + ASPEED_I2C_DEV_ADDR_REG);
 
 	/* Turn on slave mode. */
-	func_ctrl_reg_val = readl(bus->base + ASPEED_I2C_FUN_CTRL_REG);
+	func_ctrl_reg_val = kunit_readl(bus->base + ASPEED_I2C_FUN_CTRL_REG);
 	func_ctrl_reg_val |= ASPEED_I2CD_SLAVE_EN;
-	writel(func_ctrl_reg_val, bus->base + ASPEED_I2C_FUN_CTRL_REG);
+	kunit_writel(func_ctrl_reg_val, bus->base + ASPEED_I2C_FUN_CTRL_REG);
 }
 
 static int aspeed_i2c_reg_slave(struct i2c_client *client)
@@ -586,9 +586,9 @@ static int aspeed_i2c_unreg_slave(struct i2c_client *client)
 	}
 
 	/* Turn off slave mode. */
-	func_ctrl_reg_val = readl(bus->base + ASPEED_I2C_FUN_CTRL_REG);
+	func_ctrl_reg_val = kunit_readl(bus->base + ASPEED_I2C_FUN_CTRL_REG);
 	func_ctrl_reg_val &= ~ASPEED_I2CD_SLAVE_EN;
-	writel(func_ctrl_reg_val, bus->base + ASPEED_I2C_FUN_CTRL_REG);
+	kunit_writel(func_ctrl_reg_val, bus->base + ASPEED_I2C_FUN_CTRL_REG);
 
 	bus->slave = NULL;
 	spin_unlock_irqrestore(&bus->lock, flags);
@@ -690,13 +690,13 @@ static int aspeed_i2c_init_clk(struct aspeed_i2c_bus *bus)
 	u32 divisor, clk_reg_val;
 
 	divisor = DIV_ROUND_UP(bus->parent_clk_frequency, bus->bus_frequency);
-	clk_reg_val = readl(bus->base + ASPEED_I2C_AC_TIMING_REG1);
+	clk_reg_val = kunit_readl(bus->base + ASPEED_I2C_AC_TIMING_REG1);
 	clk_reg_val &= (ASPEED_I2CD_TIME_TBUF_MASK |
 			ASPEED_I2CD_TIME_THDSTA_MASK |
 			ASPEED_I2CD_TIME_TACST_MASK);
 	clk_reg_val |= bus->get_clk_reg_val(divisor);
-	writel(clk_reg_val, bus->base + ASPEED_I2C_AC_TIMING_REG1);
-	writel(ASPEED_NO_TIMEOUT_CTRL, bus->base + ASPEED_I2C_AC_TIMING_REG2);
+	kunit_writel(clk_reg_val, bus->base + ASPEED_I2C_AC_TIMING_REG1);
+	kunit_writel(ASPEED_NO_TIMEOUT_CTRL, bus->base + ASPEED_I2C_AC_TIMING_REG2);
 
 	return 0;
 }
@@ -709,7 +709,7 @@ static int aspeed_i2c_init(struct aspeed_i2c_bus *bus,
 	int ret;
 
 	/* Disable everything. */
-	writel(0, bus->base + ASPEED_I2C_FUN_CTRL_REG);
+	kunit_writel(0, bus->base + ASPEED_I2C_FUN_CTRL_REG);
 
 	ret = aspeed_i2c_init_clk(bus);
 	if (ret < 0)
@@ -719,7 +719,7 @@ static int aspeed_i2c_init(struct aspeed_i2c_bus *bus,
 		fun_ctrl_reg |= ASPEED_I2CD_MULTI_MASTER_DIS;
 
 	/* Enable Master Mode */
-	writel(readl(bus->base + ASPEED_I2C_FUN_CTRL_REG) | fun_ctrl_reg,
+	kunit_writel(kunit_readl(bus->base + ASPEED_I2C_FUN_CTRL_REG) | fun_ctrl_reg,
 	       bus->base + ASPEED_I2C_FUN_CTRL_REG);
 
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
@@ -729,7 +729,7 @@ static int aspeed_i2c_init(struct aspeed_i2c_bus *bus,
 #endif /* CONFIG_I2C_SLAVE */
 
 	/* Set interrupt generation of I2C controller */
-	writel(ASPEED_I2CD_INTR_ALL, bus->base + ASPEED_I2C_INTR_CTRL_REG);
+	kunit_writel(ASPEED_I2CD_INTR_ALL, bus->base + ASPEED_I2C_INTR_CTRL_REG);
 
 	return 0;
 }
@@ -743,8 +743,8 @@ static int aspeed_i2c_reset(struct aspeed_i2c_bus *bus)
 	spin_lock_irqsave(&bus->lock, flags);
 
 	/* Disable and ack all interrupts. */
-	writel(0, bus->base + ASPEED_I2C_INTR_CTRL_REG);
-	writel(0xffffffff, bus->base + ASPEED_I2C_INTR_STS_REG);
+	kunit_writel(0, bus->base + ASPEED_I2C_INTR_CTRL_REG);
+	kunit_writel(0xffffffff, bus->base + ASPEED_I2C_INTR_STS_REG);
 
 	ret = aspeed_i2c_init(bus, pdev);
 
@@ -827,8 +827,8 @@ static int aspeed_i2c_probe_bus(struct platform_device *pdev)
 	bus->dev = &pdev->dev;
 
 	/* Clean up any left over interrupt state. */
-	writel(0, bus->base + ASPEED_I2C_INTR_CTRL_REG);
-	writel(0xffffffff, bus->base + ASPEED_I2C_INTR_STS_REG);
+	kunit_writel(0, bus->base + ASPEED_I2C_INTR_CTRL_REG);
+	kunit_writel(0xffffffff, bus->base + ASPEED_I2C_INTR_STS_REG);
 	/*
 	 * bus.lock does not need to be held because the interrupt handler has
 	 * not been enabled yet.
@@ -863,8 +863,8 @@ static int aspeed_i2c_remove_bus(struct platform_device *pdev)
 	spin_lock_irqsave(&bus->lock, flags);
 
 	/* Disable everything. */
-	writel(0, bus->base + ASPEED_I2C_FUN_CTRL_REG);
-	writel(0, bus->base + ASPEED_I2C_INTR_CTRL_REG);
+	kunit_writel(0, bus->base + ASPEED_I2C_FUN_CTRL_REG);
+	kunit_writel(0, bus->base + ASPEED_I2C_INTR_CTRL_REG);
 
 	spin_unlock_irqrestore(&bus->lock, flags);
 
