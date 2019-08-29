@@ -942,8 +942,8 @@ static inline void test_assert_binary(struct test *test,
 			      "Asserted " #ptr " is not null, but is.");       \
 	if (IS_ERR(__ptr))						       \
 		__stream->add(__stream,					       \
-			      "Asserted " #ptr " is not error, but is: %ld",   \
-			      strerror_r(-PTR_ERR(__ptr), buf, sizeof(buf)));  \
+			      "Asserted " #ptr " is not error, but is: %ld (%s)",   \
+			      -PTR_ERR(__ptr), strerror_r(-PTR_ERR(__ptr), buf, sizeof(buf)));  \
 									       \
 	ASSERT_END(test, !IS_ERR_OR_NULL(__ptr), __stream);		       \
 } while (0)

@@ -410,4 +410,34 @@ extern bool arch_memremap_can_ram_remap(resource_size_t offset,
 extern bool phys_mem_access_encrypted(unsigned long phys_addr,
 				      unsigned long size);
 
+#if IS_ENABLED(CONFIG_PLATFORM_MOCK)
+#define kunit_readb kunit_readb
+u8 kunit_readb(const volatile void __iomem *);
+
+#define kunit_readw kunit_readw
+u16 kunit_readw(const volatile void __iomem *);
+
+#define kunit_readl kunit_readl
+u32 kunit_readl(const volatile void __iomem *);
+
+#ifdef CONFIG_64BIT
+#define kunit_readq kunit_readq
+u64 kunit_readq(const volatile void __iomem *);
+#endif /* CONFIG_64BIT */
+
+#define kunit_writeb kunit_writeb
+void kunit_writeb(u8, const volatile void __iomem *);
+
+#define kunit_writew kunit_writew
+void kunit_writew(u16, const volatile void __iomem *);
+
+#define kunit_writel kunit_writel
+void kunit_writel(u32, const volatile void __iomem *);
+
+#ifdef CONFIG_64BIT
+#define kunit_writeq kunit_writeq
+void kunit_writeq(u64, const volatile void __iomem *);
+#endif /* CONFIG_64BIT */
+#endif
+
 #endif /* _ASM_X86_IO_H */

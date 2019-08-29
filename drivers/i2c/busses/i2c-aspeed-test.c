@@ -45,6 +45,11 @@ DEFINE_FUNCTION_MOCK(devm_request_threaded_irq,
 			    unsigned long,
 			    const char *,
 			    void *));
+DEFINE_FUNCTION_MOCK(devm_clk_get,
+		     RETURNS(struct clk *),
+		     PARAMS(struct device *, const char *));
+DEFINE_FUNCTION_MOCK_VOID_RETURN(devm_clk_put,
+				 PARAMS(struct device *, struct clk *));
 
 static void call_irq_handler(struct work_struct *work)
 {
@@ -339,6 +344,17 @@ static void aspeed_i2c_25xx_get_clk_reg_val_test_round_up(struct test *test)
 	aspeed_i2c_25xx_get_clk_reg_val_params_test(test, 2176, 7, 8, 7);
 }
 
+struct clk {
+	struct clk_core	*core;
+	struct device *dev;
+	const char *dev_id;
+	const char *con_id;
+	unsigned long min_rate;
+	unsigned long max_rate;
+	unsigned int exclusive_count;
+	struct hlist_node clks_node;
+};
+
 static int aspeed_i2c_test_init(struct test *test)
 {
 	struct mock_param_capturer *adap_capturer,
@@ -346,7 +362,9 @@ static int aspeed_i2c_test_init(struct test *test)
 				   *irq_ctx_capturer;
 	struct aspeed_i2c_fake *i2c_fake;
 	struct aspeed_i2c_test *ctx;
+	struct clk *clk;
 
+	clk = test_kzalloc(test, sizeof(*clk), GFP_KERNEL);
 	i2c_fake = aspeed_i2c_fake_init(test, schedule_irq_handler_call);
 	ctx = test_kzalloc(test, sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
@@ -378,6 +396,8 @@ static int aspeed_i2c_test_init(struct test *test)
 						      any(test),
                                                       capturer_to_matcher(irq_ctx_capturer))),
                 int_return(test, 0));
+	Returns(EXPECT_CALL(devm_clk_get(any(test), any(test))), ptr_return(test, clk));
+	Returns(EXPECT_CALL(devm_clk_put(any(test), any(test))), int_return(test, 0));
 
 	adap_capturer = mock_ptr_capturer_create(test, any(test));
 	ActionOnMatch(EXPECT_CALL(
@@ -387,6 +407,8 @@ static int aspeed_i2c_test_init(struct test *test)
 	ctx->pdev = of_fake_probe_platform_by_name(test,
 						   "aspeed-i2c-bus",
 						   "test-i2c-bus");
+	/* Don't let mock expectations bleed into test cases. */
+	mock_validate_expectations(mock_get_global_mock());
 	ASSERT_NOT_ERR_OR_NULL(test, ctx->pdev);
 
 	ASSERT_PARAM_CAPTURED(test, adap_capturer);
@@ -395,9 +417,6 @@ static int aspeed_i2c_test_init(struct test *test)
 	ctx->adap = mock_capturer_get(adap_capturer, struct i2c_adapter *);
 	ctx->irq_handler = mock_capturer_get(irq_capturer, irq_handler_t);
 	ctx->irq_ctx = mock_capturer_get(irq_ctx_capturer, void *);
-
-	/* Don't let mock expectations bleed into test cases. */
-	mock_validate_expectations(mock_get_global_mock());
 
 	INIT_WORK(&ctx->call_irq_handler, call_irq_handler);
 

@@ -359,6 +359,13 @@ config CC_HAS_SANE_STACKPROTECTOR
 
 menu "Processor type and features"
 
+config PLATFORM_MOCK
+	bool "Enable a mock architecture used for unit testing."
+	depends on TEST && OF
+	default y
+	help
+	  "Used for testing stuff."
+
 config ZONE_DMA
 	bool "DMA memory allocation support" if EXPERT
 	default y

@@ -8,7 +8,7 @@
 #include <linux/device.h>
 #include <linux/export.h>
 #include <linux/gfp.h>
-#include <linux/mock.h>
+#include <test/mock.h>
 
 static void devm_clk_release(struct device *dev, void *res)
 {
@@ -81,7 +81,7 @@ static int devm_clk_match(struct device *dev, void *res, void *data)
 	return *c == data;
 }
 
-void devm_clk_put(struct device *dev, struct clk *clk)
+void __mockable devm_clk_put(struct device *dev, struct clk *clk)
 {
 	int ret;
 
