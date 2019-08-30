@@ -510,7 +510,7 @@ static void mock_format_integer(struct mock_param_formatter *pformatter,
 			container_of(pformatter,
 				     struct mock_param_integer_formatter,
 				     formatter);
-	long long param = CONVERT_TO_ACTUAL_TYPE(long long, pparam);
+	long long param = CONVERT_TO_ACTUAL_TYPE(int, pparam);
 
 	stream->add(stream, formatter->fmt_str, param);
 }

@@ -434,9 +434,9 @@ static struct mock_expectation *mock_apply_expectations(
 	struct test_stream *stream = test_new_stream(test);
 
 	if (list_empty(&method->expectations)) {
-		mock_add_method_expectation_error(test, stream,
-			"Method was called with no expectations declared: ",
-			mock, method, type_names, params, len);
+		//mock_add_method_expectation_error(test, stream,
+		//	"Method was called with no expectations declared: ",
+		//	mock, method, type_names, params, len);
 		if (is_strict_mock(mock))
 			test->fail(test, stream);
 		else if (is_naggy_mock(mock))

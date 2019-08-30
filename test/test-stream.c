@@ -85,7 +85,7 @@ static int test_stream_init(struct test_resource *res, void *context)
 	struct test_stream *stream;
 	struct test *test = context;
 
-	stream = kzalloc(sizeof(*stream), GFP_KERNEL);
+	stream = kzalloc(sizeof(*stream), GFP_ATOMIC);
 	if (!stream)
 		return -ENOMEM;
 	res->allocation = stream;

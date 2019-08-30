@@ -61,8 +61,7 @@ static void test_generic_run_try_catch(struct test_try_catch *try_catch)
 	 * For more background on this topic, see:
 	 * https://mike-bland.com/2011/11/01/small-medium-large.html
 	 */
-	status = wait_for_completion_timeout(&try_completion,
-					     300 * MSEC_PER_SEC); /* 5 min */
+	status = wait_for_completion_interruptible(&try_completion);
 	if (status < 0) {
 		test_err(test, "try timed out\n");
 		try_catch->try_result = -ETIMEDOUT;

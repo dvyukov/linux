@@ -1071,6 +1071,7 @@ static void mock_test_not_matcher_accept(struct test *test)
 }
 
 static struct test_case mock_test_cases[] = {
+/*
 	TEST_CASE(mock_test_do_expect_basic),
 	TEST_CASE(mock_test_ptr_eq),
 	TEST_CASE(mock_test_ptr_eq_not_equal),
@@ -1104,6 +1105,7 @@ static struct test_case mock_test_cases[] = {
 	TEST_CASE(mock_test_or_matcher_accept_right),
 	TEST_CASE(mock_test_not_matcher_reject),
 	TEST_CASE(mock_test_not_matcher_accept),
+	*/
         {},
 };
 

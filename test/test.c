@@ -111,6 +111,7 @@ static void __noreturn test_abort(struct test *test)
 
 int test_init_test(struct test *test, const char *name)
 {
+	spin_lock_init(&test->lock);
 	INIT_LIST_HEAD(&test->resources);
 	INIT_LIST_HEAD(&test->post_conditions);
 	test->name = name;
@@ -337,7 +338,7 @@ struct test_resource *test_alloc_resource(struct test *test,
 	struct test_resource *res;
 	int ret;
 
-	res = kzalloc(sizeof(*res), GFP_KERNEL);
+	res = kzalloc(sizeof(*res), GFP_ATOMIC);
 	if (!res)
 		return NULL;
 

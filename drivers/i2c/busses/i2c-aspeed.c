@@ -78,6 +78,13 @@ struct aspeed_i2c_bus {
 #endif /* CONFIG_I2C_SLAVE */
 };
 
+int kunit_devm_request_irq(struct device *,
+			    unsigned int,
+			    irq_handler_t,
+			    unsigned long,
+			    const char *,
+			    void *);
+
 static int aspeed_i2c_reset(struct aspeed_i2c_bus *bus);
 
 static int aspeed_i2c_recover_bus(struct aspeed_i2c_bus *bus)
@@ -838,7 +845,7 @@ static int aspeed_i2c_probe_bus(struct platform_device *pdev)
 		return ret;
 
 	irq = irq_of_parse_and_map(pdev->dev.of_node, 0);
-	ret = devm_request_irq(&pdev->dev, irq, aspeed_i2c_bus_irq,
+	ret = kunit_devm_request_irq(&pdev->dev, irq, aspeed_i2c_bus_irq,
 			       0, dev_name(&pdev->dev), bus);
 	if (ret < 0)
 		return ret;

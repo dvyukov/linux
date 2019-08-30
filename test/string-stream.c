@@ -27,11 +27,11 @@ static int string_stream_vadd(struct string_stream *this,
 
 	va_end(args_for_counting);
 
-	fragment = kmalloc(sizeof(*fragment), GFP_KERNEL);
+	fragment = kmalloc(sizeof(*fragment), GFP_ATOMIC);
 	if (!fragment)
 		return -ENOMEM;
 
-	fragment->fragment = kmalloc(len, GFP_KERNEL);
+	fragment->fragment = kmalloc(len, GFP_ATOMIC);
 	if (!fragment->fragment) {
 		kfree(fragment);
 		return -ENOMEM;
@@ -81,7 +81,7 @@ static char *string_stream_get_string(struct string_stream *this)
 	char *buf;
 	unsigned long flags;
 
-	buf = kzalloc(buf_len, GFP_KERNEL);
+	buf = kzalloc(buf_len, GFP_ATOMIC);
 	if (!buf)
 		return NULL;
 
@@ -121,7 +121,7 @@ static void string_stream_destroy(struct kref *kref)
 
 struct string_stream *new_string_stream(void)
 {
-	struct string_stream *stream = kzalloc(sizeof(*stream), GFP_KERNEL);
+	struct string_stream *stream = kzalloc(sizeof(*stream), GFP_ATOMIC);
 
 	if (!stream)
 		return NULL;
