@@ -537,6 +537,11 @@ static inline int kill_cad_pid(int sig, int priv)
 #define SEND_SIG_NOINFO ((struct kernel_siginfo *) 0)
 #define SEND_SIG_PRIV	((struct kernel_siginfo *) 1)
 
+static inline int is_si_special(const struct kernel_siginfo *info)
+{
+	return info <= SEND_SIG_PRIV;
+}
+
 /*
  * True if we are on the alternate signal stack.
  */

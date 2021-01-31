@@ -1077,6 +1077,8 @@ struct send_signal_irq_work {
 	struct task_struct *task;
 	u32 sig;
 	enum pid_type type;
+	kernel_siginfo_t *info;
+	kernel_siginfo_t infobuf;
 };
 
 static DEFINE_PER_CPU(struct send_signal_irq_work, send_signal_work);
@@ -1086,10 +1088,10 @@ static void do_bpf_send_signal(struct irq_work *entry)
 	struct send_signal_irq_work *work;
 
 	work = container_of(entry, struct send_signal_irq_work, irq_work);
-	group_send_sig_info(work->sig, SEND_SIG_PRIV, work->task, work->type);
+	group_send_sig_info(work->sig, work->info, work->task, work->type);
 }
 
-static int bpf_send_signal_common(u32 sig, enum pid_type type)
+static int bpf_send_signal_common(u32 sig, enum pid_type type, kernel_siginfo_t *info)
 {
 	struct send_signal_irq_work *work = NULL;
 
@@ -1123,16 +1125,21 @@ static int bpf_send_signal_common(u32 sig, enum pid_type type)
 		work->task = current;
 		work->sig = sig;
 		work->type = type;
+		work->info = info;
+		if (!is_si_special(info)) {
+			memcpy(&work->infobuf, info, sizeof(work->infobuf));
+			work->info = &work->infobuf;
+		}			 
 		irq_work_queue(&work->irq_work);
 		return 0;
 	}
 
-	return group_send_sig_info(sig, SEND_SIG_PRIV, current, type);
+	return group_send_sig_info(sig, info, current, type);
 }
 
 BPF_CALL_1(bpf_send_signal, u32, sig)
 {
-	return bpf_send_signal_common(sig, PIDTYPE_TGID);
+	return bpf_send_signal_common(sig, PIDTYPE_TGID, SEND_SIG_PRIV);
 }
 
 static const struct bpf_func_proto bpf_send_signal_proto = {
@@ -1144,7 +1151,7 @@ static const struct bpf_func_proto bpf_send_signal_proto = {
 
 BPF_CALL_1(bpf_send_signal_thread, u32, sig)
 {
-	return bpf_send_signal_common(sig, PIDTYPE_PID);
+	return bpf_send_signal_common(sig, PIDTYPE_PID, SEND_SIG_PRIV);
 }
 
 static const struct bpf_func_proto bpf_send_signal_thread_proto = {
@@ -1152,6 +1159,29 @@ static const struct bpf_func_proto bpf_send_signal_thread_proto = {
 	.gpl_only	= false,
 	.ret_type	= RET_INTEGER,
 	.arg1_type	= ARG_ANYTHING,
+};
+
+BPF_CALL_3(bpf_send_signal_thread_info, u32, sig, const char *, rawinfo, u32, sz)
+{
+	kernel_siginfo_t info;
+	u32 i;
+
+	for (i = sizeof(info); i < sz; i++) {
+		if (rawinfo[i] != 0)
+			return -E2BIG;
+	}
+	clear_siginfo(&info);
+	memcpy(&info, rawinfo, min_t(u32, sz, sizeof(info)));
+	return bpf_send_signal_common(sig, PIDTYPE_PID, &info);
+}
+
+static const struct bpf_func_proto bpf_send_signal_thread_info_proto = {
+	.func		= bpf_send_signal_thread_info,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_ANYTHING,
+	.arg2_type	= ARG_PTR_TO_MEM,
+	.arg3_type	= ARG_CONST_SIZE,
 };
 
 BPF_CALL_3(bpf_d_path, struct path *, path, char *, buf, u32, sz)
@@ -1340,6 +1370,8 @@ bpf_tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_send_signal_proto;
 	case BPF_FUNC_send_signal_thread:
 		return &bpf_send_signal_thread_proto;
+	case BPF_FUNC_send_signal_thread_info:
+		return &bpf_send_signal_thread_info_proto;
 	case BPF_FUNC_perf_event_read_value:
 		return &bpf_perf_event_read_value_proto;
 	case BPF_FUNC_get_ns_current_pid_tgid:
@@ -1860,6 +1892,7 @@ static bool pe_prog_is_valid_access(int off, int size, enum bpf_access_type type
 				    const struct bpf_prog *prog,
 				    struct bpf_insn_access_aux *info)
 {
+	const int size_u32 = sizeof(u32);
 	const int size_u64 = sizeof(u64);
 
 	if (off < 0 || off >= sizeof(struct bpf_perf_event_data))
@@ -1882,6 +1915,16 @@ static bool pe_prog_is_valid_access(int off, int size, enum bpf_access_type type
 			return false;
 		break;
 	case bpf_ctx_range(struct bpf_perf_event_data, addr):
+		bpf_ctx_record_field_size(info, size_u64);
+		if (!bpf_ctx_narrow_access_ok(off, size, size_u64))
+			return false;
+		break;
+	case bpf_ctx_range(struct bpf_perf_event_data, bp_type):
+		bpf_ctx_record_field_size(info, size_u32);
+		if (!bpf_ctx_narrow_access_ok(off, size, size_u32))
+			return false;
+		break;
+	case bpf_ctx_range(struct bpf_perf_event_data, bp_len):
 		bpf_ctx_record_field_size(info, size_u64);
 		if (!bpf_ctx_narrow_access_ok(off, size, size_u64))
 			return false;
@@ -1917,6 +1960,26 @@ static u32 pe_prog_convert_ctx_access(enum bpf_access_type type,
 		*insn++ = BPF_LDX_MEM(BPF_DW, si->dst_reg, si->dst_reg,
 				      bpf_target_off(struct perf_sample_data, addr, 8,
 						     target_size));
+		break;
+	case offsetof(struct bpf_perf_event_data, bp_type):
+		*target_size = 4;
+		BUILD_BUG_ON(sizeof_field(struct perf_event_attr, bp_type) != 4);
+		*insn++ = BPF_LDX_MEM(BPF_FIELD_SIZEOF(struct bpf_perf_event_data_kern,
+						       event), si->dst_reg, si->src_reg,
+				      offsetof(struct bpf_perf_event_data_kern, event));
+		*insn++ = BPF_LDX_MEM(BPF_DW, si->dst_reg, si->dst_reg,
+				      offsetof(struct perf_event, attr) +
+				      offsetof(struct perf_event_attr, bp_type));
+		break;
+	case offsetof(struct bpf_perf_event_data, bp_len):
+		*target_size = 8;
+		BUILD_BUG_ON(sizeof_field(struct perf_event_attr, bp_len) != 8);
+		*insn++ = BPF_LDX_MEM(BPF_FIELD_SIZEOF(struct bpf_perf_event_data_kern,
+						       event), si->dst_reg, si->src_reg,
+				      offsetof(struct bpf_perf_event_data_kern, event));
+		*insn++ = BPF_LDX_MEM(BPF_DW, si->dst_reg, si->dst_reg,
+				      offsetof(struct perf_event, attr) +
+				      offsetof(struct perf_event_attr, bp_len));
 		break;
 	default:
 		*insn++ = BPF_LDX_MEM(BPF_FIELD_SIZEOF(struct bpf_perf_event_data_kern,

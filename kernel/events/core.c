@@ -3174,7 +3174,7 @@ int perf_event_refresh(struct perf_event *event, int refresh)
 }
 EXPORT_SYMBOL_GPL(perf_event_refresh);
 
-static int perf_event_modify_breakpoint(struct perf_event *bp,
+static int _perf_event_modify_breakpoint(struct perf_event *bp,
 					 struct perf_event_attr *attr)
 {
 	int err;
@@ -3186,6 +3186,28 @@ static int perf_event_modify_breakpoint(struct perf_event *bp,
 	if (!bp->attr.disabled)
 		_perf_event_enable(bp);
 
+	return err;
+}
+
+static int perf_event_modify_breakpoint(struct perf_event *bp,
+					struct perf_event_attr *attr)
+{
+	struct perf_event *child;
+	int err;
+
+	WARN_ON_ONCE(bp->ctx->parent_ctx);
+
+	mutex_lock(&bp->child_mutex);
+	err = _perf_event_modify_breakpoint(bp, attr);
+	if (err)
+		goto unlock;
+	list_for_each_entry(child, &bp->child_list, child_list) {
+		err = _perf_event_modify_breakpoint(child, attr);
+		if (err)
+			goto unlock;
+	}
+unlock:
+	mutex_unlock(&bp->child_mutex);
 	return err;
 }
 

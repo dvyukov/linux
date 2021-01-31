@@ -795,11 +795,6 @@ static void flush_sigqueue_mask(sigset_t *mask, struct sigpending *s)
 	}
 }
 
-static inline int is_si_special(const struct kernel_siginfo *info)
-{
-	return info <= SEND_SIG_PRIV;
-}
-
 static inline bool si_fromuser(const struct kernel_siginfo *info)
 {
 	return info == SEND_SIG_NOINFO ||
