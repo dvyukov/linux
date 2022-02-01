@@ -34,6 +34,8 @@
 #include <asm/traps.h>
 #include <asm/vdso.h>
 
+void hw_bp_single_step(struct pt_regs *regs);
+
 /*
  * Do a signal return; undo the signal stack. These are aligned to 128-bit.
  */
@@ -536,6 +538,7 @@ SYSCALL_DEFINE0(rt_sigreturn)
 {
 	struct pt_regs *regs = current_pt_regs();
 	struct rt_sigframe __user *frame;
+	struct siginfo info;
 
 	/* Always make any pending restarted system calls return -EINTR */
 	current->restart_block.fn = do_no_restart_syscall;
@@ -557,6 +560,13 @@ SYSCALL_DEFINE0(rt_sigreturn)
 
 	if (restore_altstack(&frame->uc.uc_stack))
 		goto badframe;
+
+	// TODO: memorize the original return PC in setup_rt_frame
+	// and ensure we are returning to the same PC.
+	if (!__copy_from_user(&info, &sf->info, sizeof(info)) &&
+		info.si_signo == SIGTRAP && info.si_code == TRAP_PERF &&
+		info.si_perf_type == PERF_TYPE_BREAKPOINT)
+		hw_bp_single_step(regs);
 
 	return regs->regs[0];
 

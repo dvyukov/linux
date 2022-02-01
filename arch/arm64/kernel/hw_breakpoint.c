@@ -751,19 +751,55 @@ static int watchpoint_report(struct perf_event *wp, unsigned long addr,
 	return step;
 }
 
+void hw_bp_single_step(struct pt_regs *regs)
+{
+       int *kernel_step;
+       struct debug_info *debug_info = &current->thread.debug;
+
+        /*
+         * We always disable EL0 watchpoints because the kernel can
+         * cause these to fire via an unprivileged access.
+         */
+        toggle_bp_registers(AARCH64_DBG_REG_WCR, DBG_ACTIVE_EL0, 0);
+
+        if (user_mode(regs)) {
+                debug_info->wps_disabled = 1;
+
+                /* If we're already stepping a breakpoint, just return. */
+                if (debug_info->bps_disabled)
+                        return;
+
+                if (test_thread_flag(TIF_SINGLESTEP))
+                        debug_info->suspended_step = 1;
+                else
+                        user_enable_single_step(current);
+        } else {
+                toggle_bp_registers(AARCH64_DBG_REG_WCR, DBG_ACTIVE_EL1, 0);
+                kernel_step = this_cpu_ptr(&stepping_kernel_bp);
+
+                if (*kernel_step != ARM_KERNEL_STEP_NONE)
+                        return;
+
+                if (kernel_active_single_step()) {
+                        *kernel_step = ARM_KERNEL_STEP_SUSPEND;
+                } else {
+                        *kernel_step = ARM_KERNEL_STEP_ACTIVE;
+                        kernel_enable_single_step(regs);
+                }
+        }
+}
+
 static int watchpoint_handler(unsigned long addr, unsigned int esr,
 			      struct pt_regs *regs)
 {
-	int i, step = 0, *kernel_step, access, closest_match = 0;
+       int i, step = 0, access, closest_match = 0;
 	u64 min_dist = -1, dist;
 	u32 ctrl_reg;
 	u64 val;
 	struct perf_event *wp, **slots;
-	struct debug_info *debug_info;
 	struct arch_hw_breakpoint_ctrl ctrl;
 
 	slots = this_cpu_ptr(wp_on_reg);
-	debug_info = &current->thread.debug;
 
 	/*
 	 * Find all watchpoints that match the reported address. If no exact
@@ -798,6 +834,8 @@ static int watchpoint_handler(unsigned long addr, unsigned int esr,
 			continue;
 
 		step = watchpoint_report(wp, addr, regs);
+		if (wp->attr.sigtrap)
+                       step = 0;
 	}
 
 	/* No exact match found? */
@@ -806,41 +844,8 @@ static int watchpoint_handler(unsigned long addr, unsigned int esr,
 
 	rcu_read_unlock();
 
-	if (!step)
-		return 0;
-
-	/*
-	 * We always disable EL0 watchpoints because the kernel can
-	 * cause these to fire via an unprivileged access.
-	 */
-	toggle_bp_registers(AARCH64_DBG_REG_WCR, DBG_ACTIVE_EL0, 0);
-
-	if (user_mode(regs)) {
-		debug_info->wps_disabled = 1;
-
-		/* If we're already stepping a breakpoint, just return. */
-		if (debug_info->bps_disabled)
-			return 0;
-
-		if (test_thread_flag(TIF_SINGLESTEP))
-			debug_info->suspended_step = 1;
-		else
-			user_enable_single_step(current);
-	} else {
-		toggle_bp_registers(AARCH64_DBG_REG_WCR, DBG_ACTIVE_EL1, 0);
-		kernel_step = this_cpu_ptr(&stepping_kernel_bp);
-
-		if (*kernel_step != ARM_KERNEL_STEP_NONE)
-			return 0;
-
-		if (kernel_active_single_step()) {
-			*kernel_step = ARM_KERNEL_STEP_SUSPEND;
-		} else {
-			*kernel_step = ARM_KERNEL_STEP_ACTIVE;
-			kernel_enable_single_step(regs);
-		}
-	}
-
+       if (step)
+               hw_bp_single_step(regs);
 	return 0;
 }
 NOKPROBE_SYMBOL(watchpoint_handler);
