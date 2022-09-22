@@ -35,6 +35,8 @@
 #include <asm/desc.h>
 #include <asm/tlbflush.h>
 
+//#define LOG(msg, ...) pr_err("C%d: T%d: %s:%d: " msg "\n", raw_smp_processor_id(), current->pid, __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG(...)
 /* Per cpu debug control register value */
 DEFINE_PER_CPU(unsigned long, cpu_dr7);
 EXPORT_PER_CPU_SYMBOL(cpu_dr7);
@@ -96,7 +98,7 @@ int decode_dr7(unsigned long dr7, int bpnum, unsigned *len, unsigned *type)
 int arch_install_hw_breakpoint(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
-	unsigned long *dr7;
+	unsigned long *dr7, copy;
 	int i;
 
 	lockdep_assert_irqs_disabled();
@@ -117,7 +119,9 @@ int arch_install_hw_breakpoint(struct perf_event *bp)
 	__this_cpu_write(cpu_debugreg[i], info->address);
 
 	dr7 = this_cpu_ptr(&cpu_dr7);
+	copy = *dr7;
 	*dr7 |= encode_dr7(i, info->len, info->type);
+	//LOG("INSTALL slot=%d event=%p", i, bp);
 
 	/*
 	 * Ensure we first write cpu_dr7 before we set the DR7 register.
@@ -144,7 +148,7 @@ int arch_install_hw_breakpoint(struct perf_event *bp)
 void arch_uninstall_hw_breakpoint(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
-	unsigned long dr7;
+	unsigned long dr7, copy;
 	int i;
 
 	lockdep_assert_irqs_disabled();
@@ -162,7 +166,10 @@ void arch_uninstall_hw_breakpoint(struct perf_event *bp)
 		return;
 
 	dr7 = this_cpu_read(cpu_dr7);
+	copy = dr7;
 	dr7 &= ~__encode_dr7(i, info->len, info->type);
+	//LOG("UNINSTALL slot=%d event=%p", i, bp);
+	//WARN_ON(bp->pending_disable >= 0);
 
 	set_debugreg(dr7, 7);
 	if (info->mask)
@@ -514,14 +521,17 @@ static int hw_breakpoint_handler(struct die_args *args)
 	unsigned long *dr6_p;
 	unsigned long dr6;
 	bool bpx;
+	struct arch_hw_breakpoint *info;
 
 	/* The DR6 value is pointed by args->err */
 	dr6_p = (unsigned long *)ERR_PTR(args->err);
 	dr6 = *dr6_p;
 
 	/* Do an early return if no trap bits are set in DR6 */
-	if ((dr6 & DR_TRAP_BITS) == 0)
+	if ((dr6 & DR_TRAP_BITS) == 0) {
+		LOG("HIT no trap bits");
 		return NOTIFY_DONE;
+	}
 
 	/* Handle all the breakpoints that were triggered */
 	for (i = 0; i < HBP_NUM; ++i) {
@@ -552,6 +562,8 @@ static int hw_breakpoint_handler(struct die_args *args)
 		 */
 		(*dr6_p) &= ~(DR_TRAP0 << i);
 
+		info = counter_arch_bp(bp);
+		//LOG("HIT on 0x%lx", info->address);
 		perf_bp_event(bp, args->regs);
 
 		/*
@@ -561,6 +573,10 @@ static int hw_breakpoint_handler(struct die_args *args)
 		if (bpx)
 			args->regs->flags |= X86_EFLAGS_RF;
 	}
+
+	if (!info)
+		LOG("HIT not found");
+	//LOG("HIT done");
 
 	/*
 	 * Further processing in do_debug() is needed for a) user-space

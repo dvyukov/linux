@@ -59,6 +59,9 @@
 
 #include <asm/irq_regs.h>
 
+//#define LOG(msg, ...) pr_err("C%d: T%d: %s:%d: " msg "\n", raw_smp_processor_id(), current->pid, __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG(...)
+
 typedef int (*remote_function_f)(void *);
 
 struct remote_function_call {
@@ -2272,6 +2275,8 @@ event_sched_out(struct perf_event *event,
 		WRITE_ONCE(event->pending_disable, -1);
 		perf_cgroup_event_disable(event, ctx);
 		state = PERF_EVENT_STATE_OFF;
+		if (event->attr.sigtrap)
+			atomic_set_release(&event->event_limit, 1);
 	}
 	perf_event_set_state(event, state);
 
@@ -2465,7 +2470,8 @@ void perf_event_disable_inatomic(struct perf_event *event)
 {
 	WRITE_ONCE(event->pending_disable, smp_processor_id());
 	/* can fail, see perf_pending_event_disable() */
-	irq_work_queue(&event->pending);
+	if (!irq_work_queue(&event->pending))
+		LOG("perf_event_disable_inatomic: irq_work_queue FAILED");
 }
 
 #define MAX_INTERRUPTS (~0ULL)
@@ -2511,6 +2517,7 @@ event_sched_in(struct perf_event *event,
 	perf_log_itrace_start(event);
 
 	if (event->pmu->add(event, PERF_EF_START)) {
+		LOG("pmu->add failed");
 		perf_event_set_state(event, PERF_EVENT_STATE_INACTIVE);
 		event->oncpu = -1;
 		ret = -EAGAIN;
@@ -3111,6 +3118,7 @@ static int _perf_event_refresh(struct perf_event *event, int refresh)
 	if (event->attr.inherit || !is_sampling_event(event))
 		return -EINVAL;
 
+	LOG("_perf_event_refresh: event=%p events=%d+%d", event, atomic_read(&event->event_limit), refresh);
 	atomic_add(refresh, &event->event_limit);
 	_perf_event_enable(event);
 
@@ -3727,6 +3735,8 @@ static int merge_sched_in(struct perf_event *event, void *data)
 	if (group_can_go_on(event, cpuctx, *can_add_hw)) {
 		if (!group_sched_in(event, cpuctx, ctx))
 			list_add_tail(&event->active_list, get_event_list(event));
+		else
+			LOG("group_sched_in failed");
 	}
 
 	if (event->state == PERF_EVENT_STATE_INACTIVE) {
@@ -5599,6 +5609,7 @@ static long _perf_ioctl(struct perf_event *event, unsigned int cmd, unsigned lon
 		func = _perf_event_enable;
 		break;
 	case PERF_EVENT_IOC_DISABLE:
+		LOG("DISABLE BP");
 		func = _perf_event_disable;
 		break;
 	case PERF_EVENT_IOC_RESET:
@@ -5690,6 +5701,7 @@ static long _perf_ioctl(struct perf_event *event, unsigned int cmd, unsigned lon
 		if (err)
 			return err;
 
+		LOG("ENABLE BP");
 		return perf_event_modify_attr(event,  &new_attr);
 	}
 	default:
@@ -6422,6 +6434,7 @@ void perf_event_wakeup(struct perf_event *event)
 
 static void perf_sigtrap(struct perf_event *event)
 {
+	LOG("perf_sigtrap");
 	/*
 	 * We'd expect this to only occur if the irq_work is delayed and either
 	 * ctx->task or current has changed in the meantime. This can be the
@@ -6444,14 +6457,18 @@ static void perf_pending_event_disable(struct perf_event *event)
 {
 	int cpu = READ_ONCE(event->pending_disable);
 
-	if (cpu < 0)
+	//LOG("perf_pending_event_disable");
+	if (cpu < 0) {
+		LOG("perf_pending_event_disable: cpu < 0");
 		return;
+	}
 
 	if (cpu == smp_processor_id()) {
 		WRITE_ONCE(event->pending_disable, -1);
 
 		if (event->attr.sigtrap) {
 			perf_sigtrap(event);
+			LOG("perf_pending_event_disable: event=%p events=%d=1 ", event, atomic_read(&event->event_limit));
 			atomic_set_release(&event->event_limit, 1); /* rearm event */
 			return;
 		}
@@ -6480,6 +6497,7 @@ static void perf_pending_event_disable(struct perf_event *event)
 	 *
 	 * But the event runs on CPU-B and wants disabling there.
 	 */
+	LOG("perf_pending_event_disable: wrong cpu=%d", cpu);
 	irq_work_queue_on(&event->pending, cpu);
 }
 
@@ -9185,12 +9203,15 @@ static int __perf_event_overflow(struct perf_event *event,
 	int events = atomic_read(&event->event_limit);
 	int ret = 0;
 
+	LOG("__perf_event_overflow: event=%p events=%d", event, events);
 	/*
 	 * Non-sampling counters might still use the PMI to fold short
 	 * hardware counters, ignore those.
 	 */
-	if (unlikely(!is_sampling_event(event)))
+	if (unlikely(!is_sampling_event(event))) {
+		LOG("__perf_event_overflow: !is_sampling_event");
 		return 0;
+	}
 
 	ret = __perf_event_account_interrupt(event, throttle);
 
@@ -9204,15 +9225,21 @@ static int __perf_event_overflow(struct perf_event *event,
 		ret = 1;
 		event->pending_kill = POLL_HUP;
 		event->pending_addr = data->addr;
-
+		//LOG("__perf_event_overflow: perf_event_disable_inatomic");
 		perf_event_disable_inatomic(event);
+	} else {
+		LOG("__perf_event_overflow: NO EVENTS %d", events);
 	}
+	LOG("__perf_event_overflow: called perf_event_disable_inatomic");
 
 	READ_ONCE(event->overflow_handler)(event, data, regs);
 
 	if (*perf_event_fasync(event) && event->pending_kill) {
 		event->pending_wakeup = 1;
+		LOG("__perf_event_overflow: irq_work_queue");
 		irq_work_queue(&event->pending);
+	} else {
+		//LOG("__perf_event_overflow: !!!irq_work_queue");
 	}
 
 	return ret;
@@ -9277,6 +9304,7 @@ static void perf_swevent_overflow(struct perf_event *event, u64 overflow,
 	struct hw_perf_event *hwc = &event->hw;
 	int throttle = 0;
 
+	//LOG("perf_swevent_overflow");
 	if (!overflow)
 		overflow = perf_swevent_set_period(event);
 
@@ -10159,6 +10187,8 @@ void perf_bp_event(struct perf_event *bp, void *data)
 
 	if (!bp->hw.state && !perf_exclude_event(bp, regs))
 		perf_swevent_event(bp, 1, &sample, regs);
+	else
+		LOG("perf_bp_event: ignore");
 }
 #endif
 
@@ -11551,8 +11581,10 @@ perf_event_alloc(struct perf_event_attr *attr, int cpu,
 	if (parent_event)
 		event->event_caps = parent_event->event_caps;
 
-	if (event->attr.sigtrap)
+	if (event->attr.sigtrap) {
+		LOG("INIT perf event %p limit=1", event);
 		atomic_set(&event->event_limit, 1);
+	}
 
 	if (task) {
 		event->attach_state = PERF_ATTACH_TASK;
