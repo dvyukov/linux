@@ -2236,6 +2236,28 @@ static inline int pmu_filter_match(struct perf_event *event)
 	return 1;
 }
 
+static void perf_sigtrap(struct perf_event *event)
+{
+	atomic_set_release(&event->event_limit, 1); /* rearm event */
+
+	/*
+	 * We'd expect this to only occur if the irq_work is delayed and either
+	 * ctx->task or current has changed in the meantime. This can be the
+	 * case on architectures that do not implement arch_irq_work_raise().
+	 */
+	if (WARN_ON_ONCE(event->ctx->task != current))
+		return;
+
+	/*
+	 * perf_pending_event() can race with the task exiting.
+	 */
+	if (current->flags & PF_EXITING)
+		return;
+
+	send_sig_perf((void __user *)event->pending_addr,
+		      event->attr.type, event->attr.sig_data);
+}
+
 static inline int
 event_filter_match(struct perf_event *event)
 {
@@ -2270,8 +2292,12 @@ event_sched_out(struct perf_event *event,
 
 	if (READ_ONCE(event->pending_disable) >= 0) {
 		WRITE_ONCE(event->pending_disable, -1);
-		perf_cgroup_event_disable(event, ctx);
-		state = PERF_EVENT_STATE_OFF;
+		if (event->attr.sigtrap) {
+			perf_sigtrap(event);
+		} else {
+			perf_cgroup_event_disable(event, ctx);
+			state = PERF_EVENT_STATE_OFF;
+		}
 	}
 	perf_event_set_state(event, state);
 
@@ -6420,26 +6446,6 @@ void perf_event_wakeup(struct perf_event *event)
 	}
 }
 
-static void perf_sigtrap(struct perf_event *event)
-{
-	/*
-	 * We'd expect this to only occur if the irq_work is delayed and either
-	 * ctx->task or current has changed in the meantime. This can be the
-	 * case on architectures that do not implement arch_irq_work_raise().
-	 */
-	if (WARN_ON_ONCE(event->ctx->task != current))
-		return;
-
-	/*
-	 * perf_pending_event() can race with the task exiting.
-	 */
-	if (current->flags & PF_EXITING)
-		return;
-
-	send_sig_perf((void __user *)event->pending_addr,
-		      event->attr.type, event->attr.sig_data);
-}
-
 static void perf_pending_event_disable(struct perf_event *event)
 {
 	int cpu = READ_ONCE(event->pending_disable);
@@ -6452,7 +6458,6 @@ static void perf_pending_event_disable(struct perf_event *event)
 
 		if (event->attr.sigtrap) {
 			perf_sigtrap(event);
-			atomic_set_release(&event->event_limit, 1); /* rearm event */
 			return;
 		}
 
