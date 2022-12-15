@@ -336,6 +336,7 @@ void posixtimer_rearm(struct kernel_siginfo *info)
 int posix_timer_event(struct k_itimer *timr, int si_private)
 {
 	enum pid_type type;
+	struct pid *pid;
 	int ret;
 	/*
 	 * FIXME: if ->sigq is queued we can race with
@@ -350,8 +351,9 @@ int posix_timer_event(struct k_itimer *timr, int si_private)
 	 */
 	timr->sigq->info.si_sys_private = si_private;
 
+	pid = timr->it_pid ?: task_pid(current);
 	type = !(timr->it_sigev_notify & SIGEV_THREAD_ID) ? PIDTYPE_TGID : PIDTYPE_PID;
-	ret = send_sigqueue(timr->sigq, timr->it_pid, type);
+	ret = send_sigqueue(timr->sigq, pid, type);
 	/* If we failed to send the signal the timer stops. */
 	return ret > 0;
 }
@@ -428,27 +430,31 @@ static enum hrtimer_restart posix_timer_fn(struct hrtimer *timer)
 	return ret;
 }
 
-static struct pid *good_sigevent(sigevent_t * event)
+static struct pid *good_sigevent(sigevent_t *event, clockid_t which_clock)
 {
 	struct pid *pid = task_tgid(current);
 	struct task_struct *rtn;
 
 	switch (event->sigev_notify) {
 	case SIGEV_SIGNAL | SIGEV_THREAD_ID:
+		/* This will use the current task for signals. */
+		if (which_clock == CLOCK_PROCESS_CPUTIME_ID &&
+		    !event->sigev_notify_thread_id)
+			return NULL;
 		pid = find_vpid(event->sigev_notify_thread_id);
 		rtn = pid_task(pid, PIDTYPE_PID);
 		if (!rtn || !same_thread_group(rtn, current))
-			return NULL;
+			return ERR_PTR(-ENOENT);
 		fallthrough;
 	case SIGEV_SIGNAL:
 	case SIGEV_THREAD:
 		if (event->sigev_signo <= 0 || event->sigev_signo > SIGRTMAX)
-			return NULL;
+			return ERR_PTR(-EINVAL);
 		fallthrough;
 	case SIGEV_NONE:
 		return pid;
 	default:
-		return NULL;
+		return ERR_PTR(-EINVAL);
 	}
 }
 
@@ -502,6 +508,7 @@ static int do_timer_create(clockid_t which_clock, struct sigevent *event,
 	struct k_itimer *new_timer;
 	int error, new_timer_id;
 	int it_id_set = IT_ID_NOT_SET;
+	struct pid *pid;
 
 	if (!kc)
 		return -EINVAL;
@@ -527,9 +534,11 @@ static int do_timer_create(clockid_t which_clock, struct sigevent *event,
 
 	if (event) {
 		rcu_read_lock();
-		new_timer->it_pid = get_pid(good_sigevent(event));
+		pid = good_sigevent(event, which_clock);
+		if (!IS_ERR(pid))
+			new_timer->it_pid = get_pid(pid);
 		rcu_read_unlock();
-		if (!new_timer->it_pid) {
+		if (IS_ERR(pid)) {
 			error = -EINVAL;
 			goto out;
 		}
