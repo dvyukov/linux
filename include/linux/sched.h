@@ -1456,6 +1456,8 @@ struct task_struct {
 
 	/* Collect coverage from softirq context: */
 	unsigned int			kcov_softirq;
+
+	unsigned int			kcov_next_delay;
 #endif
 
 #ifdef CONFIG_MEMCG_V1

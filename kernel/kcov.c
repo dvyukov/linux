@@ -4,6 +4,7 @@
 #define DISABLE_BRANCH_PROFILING
 #include <linux/atomic.h>
 #include <linux/compiler.h>
+#include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/export.h>
 #include <linux/types.h>
@@ -25,6 +26,8 @@
 #include <linux/refcount.h>
 #include <linux/log2.h>
 #include <asm/setup.h>
+#include <asm/msr.h>
+#include <asm/smap.h>
 
 #define kcov_debug(fmt, ...) pr_debug("%s: " fmt, __func__, ##__VA_ARGS__)
 
@@ -201,6 +204,47 @@ static notrace unsigned long canonicalize_ip(unsigned long ip)
 	return ip;
 }
 
+static noinline notrace void random_delay(void)
+{
+	struct task_struct *t = current;
+	unsigned long long rnd;
+	unsigned long smap;
+
+	// TODO: checking SMAP just here does not seem to work for some
+	// reason, still leads to crashes on user-space addresses.
+	// TODO: delay delays until the first KCOV descriptor is setup,
+	// this was we can opt-out all of init process. Currently it leads
+	// to some "can't ssh into the instance" cases.
+	if (READ_ONCE(system_state) != SYSTEM_RUNNING ||
+		oops_in_progress /*|| (smap_save() & X86_EFLAGS_AC)*/) {
+		t->kcov_next_delay = 1000;
+		return;
+	}
+
+	smap = smap_save();
+	// TODO: shouldn't read rdtsc directly, but we want this to be
+	// randomized even after snapshot restores.
+	rnd = rdtsc();
+	if ((rnd & 0xf) == 0 && !(smap & X86_EFLAGS_AC) &&
+		!preempt_count() &&
+#ifndef CONFIG_PREEMPT_RCU
+		// TODO: should we avoid schedule() if !CONFIG_PREEMPT_RCU?
+		// In that case rcu_preempt_depth() always returns 0
+		// so we don't know if it's safe to resched or not.
+		!rcu_preempt_depth() &&
+#endif
+#ifdef CONFIG_RT_MUTEXES
+		!t->sched_rt_mutex &&
+#endif
+		!irqs_disabled() && !is_idle_task(t))
+		schedule();
+	else
+		udelay(rnd & 0xfff);
+	rnd = 1664525 * rnd + 1013904223;
+	t->kcov_next_delay = (rnd & 0xffff) + 1;
+	smap_restore(smap);
+}
+
 /*
  * Entry point from instrumented code.
  * This is called once per basic-block/edge.
@@ -213,8 +257,10 @@ void notrace __sanitizer_cov_trace_pc(void)
 	unsigned long pos;
 
 	t = current;
+
+	// TODO: should we delay only tasks that has kcov setup?
 	if (!check_kcov_mode(KCOV_MODE_TRACE_PC, t))
-		return;
+		goto exit;
 
 	area = t->kcov_area;
 	/* The first 64-bit word is the number of subsequent PCs. */
@@ -231,6 +277,10 @@ void notrace __sanitizer_cov_trace_pc(void)
 		barrier();
 		area[pos] = ip;
 	}
+
+exit:
+	if (t->kcov_next_delay-- == 0)
+		random_delay();
 }
 EXPORT_SYMBOL(__sanitizer_cov_trace_pc);
 
