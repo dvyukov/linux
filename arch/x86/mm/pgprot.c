@@ -55,6 +55,8 @@ pgprot_t vm_get_page_prot(unsigned long vm_flags)
 		val |= _PAGE_PKEY_BIT3;
 #endif
 
+	if (vm_flags & VM_KERNONLY)
+		val &= ~_PAGE_USER;
 	val = __sme_set(val);
 	if (val & _PAGE_PRESENT)
 		val &= __supported_pte_mask;

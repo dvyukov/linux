@@ -106,7 +106,7 @@ static inline void vm_unacct_memory(long pages)
  */
 static inline bool arch_validate_prot(unsigned long prot, unsigned long addr)
 {
-	return (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC | PROT_SEM)) == 0;
+	return (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC | PROT_SEM | PROT_KERNONLY)) == 0;
 }
 #define arch_validate_prot arch_validate_prot
 #endif
@@ -144,6 +144,7 @@ calc_vm_prot_bits(unsigned long prot, unsigned long pkey)
 	return _calc_vm_trans(prot, PROT_READ,  VM_READ ) |
 	       _calc_vm_trans(prot, PROT_WRITE, VM_WRITE) |
 	       _calc_vm_trans(prot, PROT_EXEC,  VM_EXEC) |
+	       _calc_vm_trans(prot, PROT_KERNONLY,  VM_KERNONLY) |
 	       arch_calc_vm_prot_bits(prot, pkey);
 }
 

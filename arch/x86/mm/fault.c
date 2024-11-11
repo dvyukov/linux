@@ -1050,7 +1050,7 @@ NOKPROBE_SYMBOL(spurious_kernel_fault);
 int show_unhandled_signals = 1;
 
 static inline int
-access_error(unsigned long error_code, struct vm_area_struct *vma)
+access_error(struct pt_regs *regs, unsigned long error_code, struct vm_area_struct *vma)
 {
 	/* This is only called for the current mm, so: */
 	bool foreign = false;
@@ -1094,6 +1094,10 @@ access_error(unsigned long error_code, struct vm_area_struct *vma)
 		if (unlikely(!(vma->vm_flags & VM_WRITE)))
 			return 1;
 		return 0;
+	}
+
+	if (vma->vm_flags & VM_KERNONLY && user_mode(regs)) {
+		return 1;
 	}
 
 	if (error_code & X86_PF_WRITE) {
@@ -1330,7 +1334,7 @@ void do_user_addr_fault(struct pt_regs *regs,
 	if (!vma)
 		goto lock_mmap;
 
-	if (unlikely(access_error(error_code, vma))) {
+	if (unlikely(access_error(regs, error_code, vma))) {
 		bad_area_access_error(regs, error_code, address, NULL, vma);
 		count_vm_vma_lock_event(VMA_LOCK_SUCCESS);
 		return;
@@ -1368,7 +1372,7 @@ retry:
 	 * Ok, we have a good vm_area for this memory access, so
 	 * we can handle it..
 	 */
-	if (unlikely(access_error(error_code, vma))) {
+	if (unlikely(access_error(regs, error_code, vma))) {
 		bad_area_access_error(regs, error_code, address, mm, vma);
 		return;
 	}

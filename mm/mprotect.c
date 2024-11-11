@@ -805,7 +805,7 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 		newflags |= (vma->vm_flags & ~mask_off_old_flags);
 
 		/* newflags >> 4 shift VM_MAY% in place of VM_% */
-		if ((newflags & ~(newflags >> 4)) & VM_ACCESS_FLAGS) {
+		if ((newflags & ~(newflags >> 4)) & VM_ACCESS_FLAGS & ~VM_KERNONLY) {
 			error = -EACCES;
 			break;
 		}
