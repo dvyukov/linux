@@ -3564,6 +3564,7 @@ static struct option __record_options[] = {
 	OPT_BOOLEAN(0, "off-cpu", &record.off_cpu, "Enable off-cpu analysis"),
 	OPT_STRING(0, "setup-filter", &record.filter_action, "pin|unpin",
 		   "BPF filter action"),
+	OPT_BOOLEAN(0, "parallelism-level", &record.opts.parallelism_level, "Record parallelism level"),
 	OPT_END()
 };
 

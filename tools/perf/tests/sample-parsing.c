@@ -190,6 +190,9 @@ static bool samples_same(const struct perf_sample *s1,
 		}
 	}
 
+	if (type & PERF_SAMPLE_PARALLELISM_LEVEL)
+		COMP(parallelism_level);
+
 	return true;
 }
 

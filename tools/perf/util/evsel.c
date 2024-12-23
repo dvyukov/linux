@@ -1476,6 +1476,9 @@ void evsel__config(struct evsel *evsel, struct record_opts *opts,
 	if (evsel__is_offcpu_event(evsel))
 		evsel->core.attr.sample_type &= OFFCPU_SAMPLE_TYPES;
 
+	if (opts->parallelism_level)
+		attr->sample_type |= PERF_SAMPLE_PARALLELISM_LEVEL;
+
 	arch__post_evsel_config(evsel, attr);
 }
 
@@ -2074,6 +2077,8 @@ static void evsel__disable_missing_features(struct evsel *evsel)
 		evsel->core.attr.branch_sample_type &= ~PERF_SAMPLE_BRANCH_HW_INDEX;
 	if (perf_missing_features.sample_id_all)
 		evsel->core.attr.sample_id_all = 0;
+	if (perf_missing_features.parallelism_level)
+		evsel->core.attr.sample_type &= ~PERF_SAMPLE_PARALLELISM_LEVEL;
 }
 
 int evsel__prepare_open(struct evsel *evsel, struct perf_cpu_map *cpus,
@@ -2245,6 +2250,13 @@ static bool evsel__detect_missing_features(struct evsel *evsel)
 	/* Please add new feature detection here. */
 
 	attr.inherit = true;
+	attr.sample_type = PERF_SAMPLE_PARALLELISM_LEVEL;
+	if (has_attr_feature(&attr, /*flags=*/0))
+		goto found;
+	perf_missing_features.parallelism_level = true;
+	pr_debug2_peo("Kernel has no PERF_SAMPLE_PARALLELISM_LEVEL support\n");
+	attr.sample_type = 0;
+
 	attr.sample_type = PERF_SAMPLE_READ;
 	if (has_attr_feature(&attr, /*flags=*/0))
 		goto found;
@@ -3143,6 +3155,8 @@ int evsel__parse_sample(struct evsel *evsel, union perf_event *event,
 		array = (void *)array + sz;
 	}
 
+	//!!!
+
 	return 0;
 }
 
@@ -3558,6 +3572,8 @@ int evsel__open_strerror(struct evsel *evsel, struct target *target,
 			return scnprintf(msg, size, "wrong clockid (%d).", clockid);
 		if (perf_missing_features.aux_output)
 			return scnprintf(msg, size, "The 'aux_output' feature is not supported, update the kernel.");
+		if (evsel->core.attr.sample_type & PERF_SAMPLE_PARALLELISM_LEVEL && perf_missing_features.parallelism_level)
+			return scnprintf(msg, size, "Asking for the parallelism level isn't supported by this kernel.");
 		if (!target__has_cpu(target))
 			return scnprintf(msg, size,
 	"Invalid event (%s) in per-thread mode, enable system wide with '-a'.",

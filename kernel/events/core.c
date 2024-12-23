@@ -60,6 +60,8 @@
 
 #include <asm/irq_regs.h>
 
+#define MYLOG pr_err
+
 typedef int (*remote_function_f)(void *);
 
 struct remote_function_call {
@@ -1925,6 +1927,9 @@ static void __perf_event_header_size(struct perf_event *event, u64 sample_type)
 	if (sample_type & PERF_SAMPLE_CODE_PAGE_SIZE)
 		size += sizeof(data->code_page_size);
 
+	if (sample_type & PERF_SAMPLE_PARALLELISM_LEVEL)
+		size += sizeof(data->parallelism_level);
+
 	event->header_size = size;
 }
 
@@ -2343,6 +2348,14 @@ event_sched_out(struct perf_event *event, struct perf_event_context *ctx)
 	if (event->attr.exclusive || !cpc->active_oncpu)
 		cpc->exclusive = 0;
 
+	if (event->attr.sample_type & PERF_SAMPLE_PARALLELISM_LEVEL) {
+		struct perf_event *parent = event->parent ?: event;
+		int val = atomic_dec_return_relaxed(&parent->total_oncpu);
+//MYLOG("SCHEDOUT event=%p parent=%p state=%d val=%d\n", event, parent, event->state, val);
+
+		WARN_ON_ONCE(val < 0 || val >= CONFIG_NR_CPUS - 1);
+	}
+
 	perf_pmu_enable(event->pmu);
 }
 
@@ -2616,6 +2629,15 @@ event_sched_in(struct perf_event *event, struct perf_event_context *ctx)
 	perf_pmu_disable(event->pmu);
 
 	perf_log_itrace_start(event);
+
+	if (event->attr.sample_type & PERF_SAMPLE_PARALLELISM_LEVEL) {
+		struct perf_event *parent = event->parent ?: event;
+		int val = atomic_inc_return_relaxed(&parent->total_oncpu);
+if (val > 1)		
+MYLOG("SCHEDIN event=%p parent=%p state=%d val=%d\n", event, parent, event->state, val);
+
+		WARN_ON_ONCE(val <= 0 || val >= CONFIG_NR_CPUS);
+	}
 
 	if (event->pmu->add(event, PERF_EF_START)) {
 		perf_event_set_state(event, PERF_EVENT_STATE_INACTIVE);
@@ -7645,6 +7667,9 @@ void perf_output_sample(struct perf_output_handle *handle,
 			perf_aux_sample_output(event, handle, data);
 	}
 
+	if (sample_type & PERF_SAMPLE_PARALLELISM_LEVEL)
+		perf_output_put(handle, data->parallelism_level);
+
 	if (!event->attr.watermark) {
 		int wakeup_events = event->attr.wakeup_events;
 
@@ -7995,6 +8020,16 @@ void perf_prepare_sample(struct perf_sample_data *data,
 		data->dyn_size += size + sizeof(u64); /* size above */
 		data->sample_flags |= PERF_SAMPLE_AUX;
 	}
+
+	if (filtered_sample_type & PERF_SAMPLE_PARALLELISM_LEVEL) {
+		struct perf_event *parent = event->parent ?: event;
+		int val = atomic_read(&parent->total_oncpu);
+
+if (val > 1)
+MYLOG("EVENT event=%p parent=%p state=%d val=%d\n", event, parent, event->state, val);
+		WARN_ON_ONCE(val <= 0 || val >= CONFIG_NR_CPUS);
+		data->parallelism_level = val;
+	}	
 }
 
 void perf_prepare_header(struct perf_event_header *header,
@@ -12233,6 +12268,11 @@ perf_event_alloc(struct perf_event_attr *attr, int cpu,
 	event->group_leader	= group_leader;
 	event->pmu		= NULL;
 	event->oncpu		= -1;
+	atomic_set(&event->total_oncpu, parent_event ? -1 : 0);
+if (attr->sample_type & PERF_SAMPLE_PARALLELISM_LEVEL) {
+MYLOG("CREATE event=%p parent=%p\n", event, parent_event);
+//WARN_ON(1);
+}
 
 	event->parent		= parent_event;
 

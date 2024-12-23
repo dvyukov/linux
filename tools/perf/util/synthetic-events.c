@@ -1562,6 +1562,9 @@ size_t perf_event__sample_event_size(const struct perf_sample *sample, u64 type,
 		result += sample->aux_sample.size;
 	}
 
+	if (type & PERF_SAMPLE_PARALLELISM_LEVEL)
+		result += sizeof(u64);
+
 	return result;
 }
 
@@ -1774,6 +1777,11 @@ int perf_event__synthesize_sample(union perf_event *event, u64 type, u64 read_fo
 		*array++ = sz;
 		memcpy(array, sample->aux_sample.data, sz);
 		array = (void *)array + sz;
+	}
+
+	if (type & PERF_SAMPLE_PARALLELISM_LEVEL) {
+		*array = sample->parallelism_level;
+		array++;
 	}
 
 	return 0;

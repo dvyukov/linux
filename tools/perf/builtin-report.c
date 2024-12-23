@@ -1573,6 +1573,8 @@ repeat:
 	report.tool.lost		 = perf_event__process_lost;
 	report.tool.read		 = process_read_event;
 	report.tool.attr		 = process_attr;
+	//!!!
+	report.tool.context_switch	 = perf_event__process_switch;
 #ifdef HAVE_LIBTRACEEVENT
 	report.tool.tracing_data	 = perf_event__process_tracing_data;
 #endif

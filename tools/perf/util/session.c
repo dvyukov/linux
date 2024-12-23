@@ -1105,6 +1105,9 @@ static void dump_sample(struct evsel *evsel, union perf_event *event,
 
 	if (sample_type & PERF_SAMPLE_READ)
 		sample_read__printf(sample, evsel->core.attr.read_format);
+
+	if (sample_type & PERF_SAMPLE_PARALLELISM_LEVEL)
+		printf("... parallelism level: %" PRIx64 "\n", sample->parallelism_level);
 }
 
 static void dump_read(struct evsel *evsel, union perf_event *event)

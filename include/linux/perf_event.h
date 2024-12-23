@@ -805,6 +805,13 @@ struct perf_event {
 
 	int				oncpu;
 	int				cpu;
+	/*
+	 * Total number of events (including children) that are currently
+	 * running on cpu. This is only maintained for the parent event
+	 * when PERF_SAMPLE_PARALLELISM_LEVEL is requested, child events
+	 * have it permanently set to -1.
+	 */
+	atomic_t			total_oncpu;
 
 	struct list_head		owner_entry;
 	struct task_struct		*owner;
@@ -1249,6 +1256,7 @@ struct perf_sample_data {
 	u64				data_page_size;
 	u64				code_page_size;
 	u64				aux_size;
+	u64				parallelism_level;
 } ____cacheline_aligned;
 
 /* default value for data source */
