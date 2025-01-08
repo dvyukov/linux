@@ -112,6 +112,8 @@ struct report {
 	u64			nr_entries;
 	u64			queue_size;
 	u64			total_cycles;
+	u64			total_samples;
+	u64			singlethreaded_samples;
 	int			socket_filter;
 	DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
 	struct branch_type_stat	brtype_stat;
@@ -330,6 +332,10 @@ static int process_sample_event(const struct perf_tool *tool,
 				     rep->nonany_branch_mode,
 				     &rep->total_cycles, evsel);
 	}
+
+	rep->total_samples++;
+	if (al.parallelism == 1)
+		rep->singlethreaded_samples++;
 
 	ret = hist_entry_iter__add(&iter, &al, rep->max_stack, rep);
 	if (ret < 0)
@@ -1081,6 +1087,10 @@ static int __cmd_report(struct report *rep)
 		return ret;
 	}
 
+	/* Don't show Wallclock column for non-parallel profiles. */
+	if (rep->singlethreaded_samples * 100 / rep->total_samples >= 99)
+		perf_hpp__cancel_wallclock();
+
 	evlist__check_mem_load_aux(session->evlist);
 
 	if (rep->stats_mode)
@@ -1392,6 +1402,8 @@ int cmd_report(int argc, const char **argv)
 		     symbol__config_symfs),
 	OPT_STRING('C', "cpu", &report.cpu_list, "cpu",
 		   "list of cpus to profile"),
+	OPT_STRING(0, "parallelism", &symbol_conf.parallelism_list_str, "parallelism",
+		   "only consider these parallelism levels (cpu set format)"),
 	OPT_BOOLEAN('I', "show-info", &report.show_full_info,
 		    "Display extended information about perf.data file"),
 	OPT_BOOLEAN(0, "source", &annotate_opts.annotate_src,
@@ -1570,6 +1582,7 @@ repeat:
 	report.tool.cgroup		 = perf_event__process_cgroup;
 	report.tool.exit		 = perf_event__process_exit;
 	report.tool.fork		 = perf_event__process_fork;
+	report.tool.context_switch	 = perf_event__process_switch;
 	report.tool.lost		 = perf_event__process_lost;
 	report.tool.read		 = process_read_event;
 	report.tool.attr		 = process_attr;
@@ -1719,6 +1732,23 @@ repeat:
 	if (report.data_type && use_browser == 1) {
 		symbol_conf.annotate_data_member = true;
 		symbol_conf.annotate_data_sample = true;
+	}
+
+	if (report.disable_order || !perf_session__has_switch_events(session)) {
+		if (symbol_conf.parallelism_list_str ||
+			(sort_order && (strstr(sort_order, "wallclock") ||
+				strstr(sort_order, "parallelism"))) ||
+			(field_order && (strstr(field_order, "wallclock") ||
+				strstr(field_order, "parallelism")))) {
+			if (report.disable_order)
+				ui__error("Use of wallclock profile or parallelism"
+					" is incompatible with --disable-order.\n");
+			else
+				ui__error("Use of wallclock profile or parallelism"
+					" requires --switch-events during record.\n");
+			return -1;
+		}
+		symbol_conf.disable_wallclock = true;
 	}
 
 	if (last_key != K_SWITCH_INPUT_DATA) {

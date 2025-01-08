@@ -27,9 +27,10 @@ static int __hpp__fmt_print(struct perf_hpp *hpp, struct hists *hists, u64 val,
 			    int nr_samples, const char *fmt, int len,
 			    hpp_snprint_fn print_fn, enum perf_hpp_fmt_type fmtype)
 {
-	if (fmtype == PERF_HPP_FMT_TYPE__PERCENT) {
+	if (fmtype == PERF_HPP_FMT_TYPE__PERCENT || fmtype == PERF_HPP_FMT_TYPE__WALLCLOCK) {
 		double percent = 0.0;
-		u64 total = hists__total_period(hists);
+		u64 total = fmtype == PERF_HPP_FMT_TYPE__PERCENT ? hists__total_period(hists) :
+			hists__total_wallclock(hists);
 
 		if (total)
 			percent = 100.0 * val / total;
@@ -128,7 +129,7 @@ int hpp__fmt(struct perf_hpp_fmt *fmt, struct perf_hpp *hpp,
 				  print_fn, fmtype);
 	}
 
-	if (fmtype == PERF_HPP_FMT_TYPE__PERCENT)
+	if (fmtype == PERF_HPP_FMT_TYPE__PERCENT || fmtype == PERF_HPP_FMT_TYPE__WALLCLOCK)
 		len -= 2; /* 2 for a space and a % sign */
 	else
 		len -= 1;
@@ -472,11 +473,13 @@ __HPP_ENTRY_AVERAGE_FN(_type, _field)					\
 __HPP_SORT_AVERAGE_FN(_type, _field)
 
 HPP_PERCENT_FNS(overhead, period)
+HPP_PERCENT_FNS(wallclock, wallclock)
 HPP_PERCENT_FNS(overhead_sys, period_sys)
 HPP_PERCENT_FNS(overhead_us, period_us)
 HPP_PERCENT_FNS(overhead_guest_sys, period_guest_sys)
 HPP_PERCENT_FNS(overhead_guest_us, period_guest_us)
 HPP_PERCENT_ACC_FNS(overhead_acc, period)
+HPP_PERCENT_ACC_FNS(wallclock_acc, wallclock)
 
 HPP_RAW_FNS(samples, nr_events)
 HPP_RAW_FNS(period, period)
@@ -548,11 +551,13 @@ static bool hpp__equal(struct perf_hpp_fmt *a, struct perf_hpp_fmt *b)
 
 struct perf_hpp_fmt perf_hpp__format[] = {
 	HPP__COLOR_PRINT_FNS("Overhead", overhead, OVERHEAD),
+	HPP__COLOR_PRINT_FNS("Wallclock", wallclock, WALLCLOCK),
 	HPP__COLOR_PRINT_FNS("sys", overhead_sys, OVERHEAD_SYS),
 	HPP__COLOR_PRINT_FNS("usr", overhead_us, OVERHEAD_US),
 	HPP__COLOR_PRINT_FNS("guest sys", overhead_guest_sys, OVERHEAD_GUEST_SYS),
 	HPP__COLOR_PRINT_FNS("guest usr", overhead_guest_us, OVERHEAD_GUEST_US),
 	HPP__COLOR_ACC_PRINT_FNS("Children", overhead_acc, OVERHEAD_ACC),
+	HPP__COLOR_ACC_PRINT_FNS("Wall", wallclock_acc, WALLCLOCK_ACC),
 	HPP__PRINT_FNS("Samples", samples, SAMPLES),
 	HPP__PRINT_FNS("Period", period, PERIOD),
 	HPP__PRINT_FNS("Weight1", weight1, WEIGHT1),
@@ -601,9 +606,15 @@ static void fmt_free(struct perf_hpp_fmt *fmt)
 		fmt->free(fmt);
 }
 
+static bool fmt_equal(struct perf_hpp_fmt *a, struct perf_hpp_fmt *b)
+{
+	return a->equal && a->equal(a, b);
+}
+
 void perf_hpp__init(void)
 {
 	int i;
+	bool prefer_wallclock;
 
 	for (i = 0; i < PERF_HPP__MAX_INDEX; i++) {
 		struct perf_hpp_fmt *fmt = &perf_hpp__format[i];
@@ -621,12 +632,30 @@ void perf_hpp__init(void)
 	if (is_strict_order(field_order))
 		return;
 
+	/*
+	 * There are numerous ways how a user can setup a custom view with
+	 * --sort/fields flags, but we provide --sort=wallclock as a simple
+	 * preset for latency analysis and show wallclock before CPU overhead.
+	 */
+	prefer_wallclock = !symbol_conf.disable_wallclock && sort_order &&
+		!strncmp(sort_order, "wallclock", sizeof("wallclock")-1);
+
 	if (symbol_conf.cumulate_callchain) {
+		/* Use idempotent addition to avoid more complex logic. */
+		if (prefer_wallclock)
+			hpp_dimension__add_output(PERF_HPP__WALLCLOCK_ACC);
 		hpp_dimension__add_output(PERF_HPP__OVERHEAD_ACC);
+		if (!symbol_conf.disable_wallclock)
+			hpp_dimension__add_output(PERF_HPP__WALLCLOCK_ACC);
 		perf_hpp__format[PERF_HPP__OVERHEAD].name = "Self";
+		perf_hpp__format[PERF_HPP__WALLCLOCK].name = "Wall";
 	}
 
+	if (prefer_wallclock)
+		hpp_dimension__add_output(PERF_HPP__WALLCLOCK);
 	hpp_dimension__add_output(PERF_HPP__OVERHEAD);
+	if (!symbol_conf.disable_wallclock)
+		hpp_dimension__add_output(PERF_HPP__WALLCLOCK);
 
 	if (symbol_conf.show_cpu_utilization) {
 		hpp_dimension__add_output(PERF_HPP__OVERHEAD_SYS);
@@ -671,28 +700,43 @@ static void perf_hpp__column_unregister(struct perf_hpp_fmt *format)
 
 void perf_hpp__cancel_cumulate(void)
 {
-	struct perf_hpp_fmt *fmt, *acc, *ovh, *tmp;
+	struct perf_hpp_fmt *fmt, *acc, *ovh, *wall, *acc_wall, *tmp;
 
 	if (is_strict_order(field_order))
 		return;
 
 	ovh = &perf_hpp__format[PERF_HPP__OVERHEAD];
 	acc = &perf_hpp__format[PERF_HPP__OVERHEAD_ACC];
+	wall = &perf_hpp__format[PERF_HPP__WALLCLOCK];
+	acc_wall = &perf_hpp__format[PERF_HPP__WALLCLOCK_ACC];
 
 	perf_hpp_list__for_each_format_safe(&perf_hpp_list, fmt, tmp) {
-		if (acc->equal(acc, fmt)) {
+		if (fmt_equal(acc, fmt) || fmt_equal(acc_wall, fmt)) {
 			perf_hpp__column_unregister(fmt);
 			continue;
 		}
 
-		if (ovh->equal(ovh, fmt))
+		if (fmt_equal(ovh, fmt))
 			fmt->name = "Overhead";
+		if (fmt_equal(wall, fmt))
+			fmt->name = "Wallclock";
 	}
 }
 
-static bool fmt_equal(struct perf_hpp_fmt *a, struct perf_hpp_fmt *b)
+void perf_hpp__cancel_wallclock(void)
 {
-	return a->equal && a->equal(a, b);
+	struct perf_hpp_fmt *fmt, *wall, *acc, *tmp;
+
+	if (is_strict_order(field_order))
+		return;
+
+	wall = &perf_hpp__format[PERF_HPP__WALLCLOCK];
+	acc = &perf_hpp__format[PERF_HPP__WALLCLOCK_ACC];
+
+	perf_hpp_list__for_each_format_safe(&perf_hpp_list, fmt, tmp) {
+		if (fmt_equal(wall, fmt) || fmt_equal(acc, fmt))
+			perf_hpp__column_unregister(fmt);
+	}
 }
 
 void perf_hpp__setup_output_field(struct perf_hpp_list *list)
@@ -819,6 +863,7 @@ void perf_hpp__reset_width(struct perf_hpp_fmt *fmt, struct hists *hists)
 
 	switch (fmt->idx) {
 	case PERF_HPP__OVERHEAD:
+	case PERF_HPP__WALLCLOCK:
 	case PERF_HPP__OVERHEAD_SYS:
 	case PERF_HPP__OVERHEAD_US:
 	case PERF_HPP__OVERHEAD_ACC:

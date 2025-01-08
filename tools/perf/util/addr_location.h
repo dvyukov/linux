@@ -17,10 +17,14 @@ struct addr_location {
 	const char    *srcline;
 	u64	      addr;
 	char	      level;
-	u8	      filtered;
+	u16	      filtered;
 	u8	      cpumode;
 	s32	      cpu;
 	s32	      socket;
+	/* Same as machine.parallelism but within [1, nr_cpus]. */
+	int	      parallelism;
+	/* See he_stat.wallclock. */
+	u64	      wallclock;
 };
 
 void addr_location__init(struct addr_location *al);

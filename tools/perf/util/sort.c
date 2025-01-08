@@ -892,6 +892,38 @@ struct sort_entry sort_cpu = {
 	.se_width_idx	= HISTC_CPU,
 };
 
+/* --sort parallelism */
+
+static int64_t
+sort__parallelism_cmp(struct hist_entry *left, struct hist_entry *right)
+{
+	return right->parallelism - left->parallelism;
+}
+
+static int hist_entry__parallelism_filter(struct hist_entry *he, int type, const void *arg)
+{
+	const unsigned long *parallelism_filter = arg;
+
+	if (type != HIST_FILTER__PARALLELISM)
+		return -1;
+
+	return test_bit(he->parallelism, parallelism_filter);
+}
+
+static int hist_entry__parallelism_snprintf(struct hist_entry *he, char *bf,
+				    size_t size, unsigned int width)
+{
+	return repsep_snprintf(bf, size, "%*d", width, he->parallelism);
+}
+
+struct sort_entry sort_parallelism = {
+	.se_header      = "Parallelism",
+	.se_cmp	        = sort__parallelism_cmp,
+	.se_filter	= hist_entry__parallelism_filter,
+	.se_snprintf    = hist_entry__parallelism_snprintf,
+	.se_width_idx	= HISTC_PARALLELISM,
+};
+
 /* --sort cgroup_id */
 
 static int64_t _sort__cgroup_dev_cmp(u64 left_dev, u64 right_dev)
@@ -2532,6 +2564,7 @@ static struct sort_dimension common_sort_dimensions[] = {
 	DIM(SORT_ANNOTATE_DATA_TYPE_OFFSET, "typeoff", sort_type_offset),
 	DIM(SORT_SYM_OFFSET, "symoff", sort_sym_offset),
 	DIM(SORT_ANNOTATE_DATA_TYPE_CACHELINE, "typecln", sort_type_cacheline),
+	DIM(SORT_PARALLELISM, "parallelism", sort_parallelism),
 };
 
 #undef DIM
@@ -2593,11 +2626,13 @@ struct hpp_dimension {
 
 static struct hpp_dimension hpp_sort_dimensions[] = {
 	DIM(PERF_HPP__OVERHEAD, "overhead"),
+	DIM(PERF_HPP__WALLCLOCK, "wallclock"),
 	DIM(PERF_HPP__OVERHEAD_SYS, "overhead_sys"),
 	DIM(PERF_HPP__OVERHEAD_US, "overhead_us"),
 	DIM(PERF_HPP__OVERHEAD_GUEST_SYS, "overhead_guest_sys"),
 	DIM(PERF_HPP__OVERHEAD_GUEST_US, "overhead_guest_us"),
 	DIM(PERF_HPP__OVERHEAD_ACC, "overhead_children"),
+	DIM(PERF_HPP__WALLCLOCK_ACC, "wallclock_children"),
 	DIM(PERF_HPP__SAMPLES, "sample"),
 	DIM(PERF_HPP__PERIOD, "period"),
 	DIM(PERF_HPP__WEIGHT1, "weight1"),
@@ -2733,6 +2768,7 @@ MK_SORT_ENTRY_CHK(thread)
 MK_SORT_ENTRY_CHK(comm)
 MK_SORT_ENTRY_CHK(dso)
 MK_SORT_ENTRY_CHK(sym)
+MK_SORT_ENTRY_CHK(parallelism)
 
 
 static bool __sort__hpp_equal(struct perf_hpp_fmt *a, struct perf_hpp_fmt *b)
@@ -3716,6 +3752,21 @@ static int setup_sort_order(struct evlist *evlist)
 	char *new_sort_order;
 
 	/*
+	 * Append the default sort order to "wallclock".
+	 * Just "wallclock" is not useful on its own, and there is no easy way
+	 * to express it otherwise.
+	 */
+	if (sort_order && !strcmp(sort_order, "wallclock")) {
+		if (asprintf(&new_sort_order, "%s,%s",
+			     sort_order, get_default_sort_order(evlist)) < 0) {
+			pr_err("Not enough memory to set up --sort");
+			return -ENOMEM;
+		}
+		sort_order = new_sort_order;
+		return 0;
+	}
+
+	/*
 	 * Append '+'-prefixed sort order to the default sort
 	 * order string.
 	 */
@@ -3764,10 +3815,14 @@ static char *setup_overhead(char *keys)
 	if (sort__mode == SORT_MODE__DIFF)
 		return keys;
 
-	keys = prefix_if_not_in("overhead", keys);
+	if (!strstr(keys, "wallclock"))
+		keys = prefix_if_not_in("overhead", keys);
 
-	if (symbol_conf.cumulate_callchain)
+	if (symbol_conf.cumulate_callchain) {
+		if (!symbol_conf.disable_wallclock)
+			keys = prefix_if_not_in("wallclock_children", keys);
 		keys = prefix_if_not_in("overhead_children", keys);
+	}
 
 	return keys;
 }

@@ -3342,6 +3342,12 @@ static struct record record = {
 		.ctl_fd              = -1,
 		.ctl_fd_ack          = -1,
 		.synth               = PERF_SYNTH_ALL,
+		/*
+		 * This is enabled by default because it's required to show
+		 * wallclock overhead and parallelism profile, and does not
+		 * add lots of overhead on top of samples data.
+		 */
+		.record_switch_events	= true,
 	},
 };
 
