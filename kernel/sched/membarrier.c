@@ -199,7 +199,8 @@ static void ipi_rseq(void *info)
 	 * is negligible.
 	 */
 	smp_mb();
-	rseq_sched_switch_event(current);
+	rseq_force_update();
+	//rseq_sched_switch_event(current);
 }
 
 static void ipi_sync_rq_state(void *info)
@@ -333,6 +334,8 @@ static int membarrier_private_expedited(int flags, int cpu_id)
 		if (!(atomic_read(&mm->membarrier_state) &
 		      MEMBARRIER_STATE_PRIVATE_EXPEDITED_RSEQ_READY))
 			return -EPERM;
+		atomic64_inc(&mm->mm_cid.fence_seq);
+		rseq_force_update();
 		ipi_func = ipi_rseq;
 	} else {
 		WARN_ON_ONCE(flags);
