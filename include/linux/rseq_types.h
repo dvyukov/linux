@@ -51,6 +51,7 @@ struct rseq_event {
 			};
 		};
 	};
+	u64					fence_seq;
 };
 
 /**
@@ -173,6 +174,7 @@ struct mm_mm_cid {
 	struct mm_cid_pcpu	__percpu *pcpu;
 	unsigned int		mode;
 	unsigned int		max_cids;
+	atomic64_t		fence_seq;
 
 	/* Rarely used. Moves @lock and @mutex into the second cacheline */
 	struct irq_work		irq_work;

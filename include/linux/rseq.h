@@ -51,6 +51,7 @@ static __always_inline void rseq_sched_switch_event(struct task_struct *t)
 	struct rseq_event *ev = &t->rseq.event;
 
 	if (IS_ENABLED(CONFIG_GENERIC_IRQ_ENTRY)) {
+		u64 fence_seq;
 		/*
 		 * Avoid a boat load of conditionals by using simple logic
 		 * to determine whether NOTIFY_RESUME needs to be raised.
@@ -59,6 +60,15 @@ static __always_inline void rseq_sched_switch_event(struct task_struct *t)
 		 * the entry was from user space.
 		 */
 		bool raise = (ev->user_irq | ev->ids_changed) & ev->has_rseq;
+
+		if (ev->has_rseq && t->mm) {
+			fence_seq = atomic64_read(&t->mm->mm_cid.fence_seq);
+			if (ev->fence_seq != fence_seq) {
+				ev->fence_seq = fence_seq;
+				ev->ids_changed = true;
+				raise = true;
+			}
+		}
 
 		if (raise) {
 			ev->sched_switch = true;
